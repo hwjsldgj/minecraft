@@ -166,12 +166,18 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 	var solid_mesh := _commit_if_used(st_solid, solid_verts)
 	var water_mesh := _commit_if_used(st_water, water_verts)
 
-	var entry := { "solid": null, "water": null }
+	var entry := { "solid": null, "water": null, "collision": null }
 	var mesh_solid: MeshInstance3D = null
+	var collider: StaticBody3D = null
 	if solid_mesh != null:
 		mesh_solid = _make_instance(solid_mesh, origin_v3, TextureManager.get_shared_material())
 		world.add_child(mesh_solid)
 		entry["solid"] = mesh_solid
+		# 为固体网格生成碰撞体，供玩家/物理落地/跳跃
+		collider = _make_collider(solid_mesh, origin_v3)
+		if collider != null:
+			world.add_child(collider)
+			entry["collision"] = collider
 	var mesh_water: MeshInstance3D = null
 	if water_mesh != null:
 		mesh_water = _make_instance(water_mesh, origin_v3, TextureManager.get_water_material())
@@ -222,6 +228,21 @@ static func _make_instance(mesh: Mesh, chunk_pos: Vector3i, material: Material) 
 	mi.material_override = material
 	mi.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
 	return mi
+
+
+# 为固体网格创建 StaticBody3D 碰撞（同一 chunk 位移）。水不建碰撞（游泳由参数模拟）。
+static func _make_collider(mesh: Mesh, chunk_pos: Vector3i) -> StaticBody3D:
+	var faces := mesh.get_faces()
+	if faces.is_empty():
+		return null
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	var col_shape := CollisionShape3D.new()
+	col_shape.shape = shape
+	var body := StaticBody3D.new()
+	body.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
+	body.add_child(col_shape)
+	return body
 
 
 # 自检：每个面的 (v1-v0)×(v2-v0) 应 == 该面外法线，角点在[0,1]、UV在[0,1]。

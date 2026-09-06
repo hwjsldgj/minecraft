@@ -1,7 +1,12 @@
-[gd_scene load_steps=3 format=3 uid="uid://dhehcb5mt8fno"]
+[gd_scene load_steps=5 format=3 uid="uid://dhehcb5mt8fno"]
 
 [ext_resource type="Script" uid="uid://cdn5anhc231gj" path="res://scripts/world/WorldManager.gd" id="1_world"]
-[ext_resource type="Script" path="res://scripts/rendering/editor_camera.gd" id="2_cam"]
+[ext_resource type="Script" path="res://scripts/player/PlayerController.gd" id="2_player"]
+[ext_resource type="Script" path="res://scripts/player/CameraController.gd" id="3_cam"]
+
+[sub_resource type="CapsuleShape3D" id="cap1"]
+radius = 0.4
+height = 1.8
 
 [node name="Main" type="Node3D"]
 
@@ -11,7 +16,16 @@ script = ExtResource("1_world")
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 20, 0)
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Player" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 10, 12)
+script = ExtResource("2_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("cap1")
+
+[node name="Camera3D" type="Camera3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
 current = true
-fov = 65.0
-script = ExtResource("2_cam")
+fov = 70.0
+script = ExtResource("3_cam")

@@ -15,6 +15,12 @@ const TEXTURE_DIR := "res://block/"
 # 纯色占位尺寸（与原版贴图一致）
 const PLACEHOLDER_SIZE := 16
 
+# 需对着色层/叠加着色的源纹理：MC 的 grass_block_top 是灰度图，绿靠草地色叠加。
+# 在拼入图集前按给定颜色着色，使草顶呈现正常草绿而非灰白(观感"覆雪")。
+const _SOURCE_TINT := {
+	"grass_block_top": Color(0.42, 0.78, 0.35),
+}
+
 # 方块纹理配置：键 = 方块 ID，值 = 长度 6 键名数组
 # 顺序： [0=底, 1=顶, 2=北, 3=南, 4=西, 5=东]
 const BLOCK_TEXTURE_KEYS := {
@@ -172,6 +178,15 @@ func _ensure_atlas() -> void:
 		# 统一转 RGBA8 以便 blit_rect
 		if sub.get_format() != Image.FORMAT_RGBA8:
 			sub.convert(Image.FORMAT_RGBA8)
+		# 需要草地绿着色的源（grass_block_top 为灰度，着色后为草绿顶）
+		if _SOURCE_TINT.has(key):
+			var tint: Color = _SOURCE_TINT[key]
+			var sw := sub.get_width()
+			var sh := sub.get_height()
+			for py in range(sh):
+				for px in range(sw):
+					var p := sub.get_pixel(px, py)
+					sub.set_pixel(px, py, Color(p.r * tint.r, p.g * tint.g, p.b * tint.b, p.a))
 		var src: Rect2i = frame_rect[key]
 		var col := i % cols
 		var row := i / cols

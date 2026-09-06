@@ -70,6 +70,8 @@ func clear_render(v3: Vector3i) -> void:
 		entry["solid"].queue_free()
 	if entry.get("water") is MeshInstance3D:
 		entry["water"].queue_free()
+	if entry.get("collision") is StaticBody3D:
+		entry["collision"].queue_free()
 	render_cache.erase(v3)
 
 
