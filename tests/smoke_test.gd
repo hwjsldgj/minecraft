@@ -34,10 +34,14 @@ func _test_world() -> void:
 	add_child(world)
 	_check(world.world_data.size() == 16, "WorldManager 应加载 16 个区块 (实际 %d)" % world.world_data.size())
 
-	# 内部区域取样：(gx, gy, gz) —— 草顶高原
-	_check(world.get_block(0, 0, 0) == GlobalConfig.BLOCK_STONE, "内部 y0 应为石头")
-	_check(world.get_block(0, 5, 0) == GlobalConfig.BLOCK_GRASS, "内部 y5 应为草")
-	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_AIR, "内部 y6 应为空气(草顶为地表)")
+	# 平原(坑外)取样：(gx=10 不在中央坑 |x|<=6 内)
+	_check(world.get_block(0, 0, 0) == GlobalConfig.BLOCK_STONE, "y0 应为石头(坑/平原)")
+	_check(world.get_block(10, 5, 0) == GlobalConfig.BLOCK_GRASS, "平原 y5 应为草")
+	_check(world.get_block(10, 6, 0) == GlobalConfig.BLOCK_AIR, "平原 y6 应为空气(草顶为地表)")
+	# 中央下陷坑取样：(0,0) 在坑内，地表降到 y2，其上为空气
+	_check(world.get_block(0, 1, 0) == GlobalConfig.BLOCK_STONE, "坑底 y1 应为石头")
+	_check(world.get_block(0, 3, 0) == GlobalConfig.BLOCK_AIR, "坑内 y3 应为空气(坑深到约y2)")
+	_check(world.get_block(-5, 1, -5) == GlobalConfig.BLOCK_STONE, "坑边 y1 应为石头")
 	# 最外一圈水沟取样（世界边界 -32 与 31）
 	_check(world.get_block(-32, 0, 0) == GlobalConfig.BLOCK_WATER, "水沟 x=-32 y0 应为水")
 	_check(world.get_block(-32, 5, 0) == GlobalConfig.BLOCK_WATER, "水沟 x=-32 y5 应为水")
@@ -45,7 +49,8 @@ func _test_world() -> void:
 	_check(world.get_block(31, 0, 31) == GlobalConfig.BLOCK_WATER, "水沟 x=31,z=31 y0 应为水")
 	_check(world.get_block(0, 5, 31) == GlobalConfig.BLOCK_WATER, "水沟 z=31 y5 应为水")
 	# 负数安全取模：-1 应落在区块 -1 的本地坐标 15
-	_check(world.get_block(-1, 5, 0) == GlobalConfig.BLOCK_GRASS, "x=-1 y5 应为草(负坐标取模正确)")
+	# 负数安全取模：-10 落在区块 -1 的本地坐标 6（坑外平原）→ y5 草
+	_check(world.get_block(-10, 5, 0) == GlobalConfig.BLOCK_GRASS, "x=-10 y5 应为草(负坐标取模正确)")
 	# 未加载区块（x=5,y=1 之外）→ -1
 	_check(world.get_block(100, 5, 100) == -1, "越界未加载应返回 -1")
 	# set_block：加载/建网格后 dirty 已被复位为 false；写入后应重新置 true
