@@ -32,50 +32,52 @@ const FACE_NORMALS := [
 ]
 
 # 每个面：4 个角点 [位置偏移(方块内0..1), UV(该面0..1)]。
-# 角点顺序保证叉积 = FACE_NORMALS[face]（正面向外/CCW）；
+# 环绕方向说明：Godot 默认 cull_back，其"正面"是从外侧看为【顺时针】的环绕。
+# 故此处的角点顺序为【顺时针(从外侧看)】：从方块外看是正面，从方块内看是背面，
+# 这样 cull_back 会显示外表面、剔除内壁。UV 随角点成对绑定；
 # 侧面/顶面 uv.y=0 在方块顶边(贴图顶行=草皮条)、uv.y=1 在底边。
 const FACE_QUADS := [
-	# 0 BOTTOM 底面(泥土，方向无要求)，法线 (0,-1,0)
+	# 0 BOTTOM 底面(泥土)，法线 (0,-1,0)，面朝下(从外侧=下方看为正面)
 	[
-		[Vector3(0, 0, 0), Vector2(0, 0)],
-		[Vector3(1, 0, 0), Vector2(1, 0)],
-		[Vector3(1, 0, 1), Vector2(1, 1)],
 		[Vector3(0, 0, 1), Vector2(0, 1)],
+		[Vector3(1, 0, 1), Vector2(1, 1)],
+		[Vector3(1, 0, 0), Vector2(1, 0)],
+		[Vector3(0, 0, 0), Vector2(0, 0)],
 	],
-	# 1 TOP 顶面(草面)，法线 (0,1,0)
+	# 1 TOP 顶面(草面)，法线 (0,1,0)，面朝上(从外侧=上方看为正面)
 	[
-		[Vector3(0, 1, 0), Vector2(0, 0)],
-		[Vector3(0, 1, 1), Vector2(1, 0)],
-		[Vector3(1, 1, 1), Vector2(1, 1)],
 		[Vector3(1, 1, 0), Vector2(0, 1)],
+		[Vector3(1, 1, 1), Vector2(1, 1)],
+		[Vector3(0, 1, 1), Vector2(1, 0)],
+		[Vector3(0, 1, 0), Vector2(0, 0)],
 	],
 	# 2 BACK 北面(-Z)，草皮条朝上，法线 (0,0,-1)
 	[
-		[Vector3(0, 1, 0), Vector2(0, 0)],
-		[Vector3(1, 1, 0), Vector2(1, 0)],
-		[Vector3(1, 0, 0), Vector2(1, 1)],
 		[Vector3(0, 0, 0), Vector2(0, 1)],
+		[Vector3(1, 0, 0), Vector2(1, 1)],
+		[Vector3(1, 1, 0), Vector2(1, 0)],
+		[Vector3(0, 1, 0), Vector2(0, 0)],
 	],
 	# 3 FRONT 南面(+Z)，草皮条朝上，法线 (0,0,1)
 	[
-		[Vector3(1, 1, 1), Vector2(1, 0)],
-		[Vector3(0, 1, 1), Vector2(0, 0)],
-		[Vector3(0, 0, 1), Vector2(0, 1)],
 		[Vector3(1, 0, 1), Vector2(1, 1)],
+		[Vector3(0, 0, 1), Vector2(0, 1)],
+		[Vector3(0, 1, 1), Vector2(0, 0)],
+		[Vector3(1, 1, 1), Vector2(1, 0)],
 	],
 	# 4 LEFT 西面(-X)，草皮条朝上，法线 (-1,0,0)
 	[
-		[Vector3(0, 1, 1), Vector2(1, 0)],
-		[Vector3(0, 1, 0), Vector2(0, 0)],
-		[Vector3(0, 0, 0), Vector2(0, 1)],
 		[Vector3(0, 0, 1), Vector2(1, 1)],
+		[Vector3(0, 0, 0), Vector2(0, 1)],
+		[Vector3(0, 1, 0), Vector2(0, 0)],
+		[Vector3(0, 1, 1), Vector2(1, 0)],
 	],
 	# 5 RIGHT 东面(+X)，草皮条朝上，法线 (1,0,0)
 	[
-		[Vector3(1, 1, 0), Vector2(0, 0)],
-		[Vector3(1, 1, 1), Vector2(1, 0)],
-		[Vector3(1, 0, 1), Vector2(1, 1)],
 		[Vector3(1, 0, 0), Vector2(0, 1)],
+		[Vector3(1, 0, 1), Vector2(1, 1)],
+		[Vector3(1, 1, 1), Vector2(1, 0)],
+		[Vector3(1, 1, 0), Vector2(0, 0)],
 	],
 ]
 
@@ -231,8 +233,10 @@ static func _face_self_check() -> void:
 		var p2: Vector3 = q[2][0]
 		var n: Vector3 = (p1 - p0).cross(p2 - p0).normalized()
 		var want: Vector3 = FACE_NORMALS[face]
-		if n.dot(want) < 0.999:
-			push_warning("[MeshBuilder] FACE %d 法线错误： got %s want %s" % [face, n, want])
+		# 环绕方向只要与法线轴对齐即可（正负代表该面对应哪一侧朝外）；
+		# 依 Godot cull_back 正面约定，存的是"从外侧看为顺时针"，故右手法线指向法线反侧。
+		if absf(n.dot(want)) < 0.999:
+			push_warning("[MeshBuilder] FACE %d 法线错误： got %s want(axis) %s" % [face, n, want])
 		for corner in q:
 			var pos: Vector3 = corner[0]
 			var tuv: Vector2 = corner[1]
