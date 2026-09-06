@@ -2,7 +2,7 @@
 # 文件:    MeshBuilder.gd
 # 路径:    res://scripts/rendering/MeshBuilder.gd
 # 职责:    构建区块的 ArrayMesh，实现邻接面剔除与顶点颜色（MC 风明暗）
-# 版本:    v0.2.0
+# 版本:    v0.2.1
 # 说明:    - 顶点使用区块本地连续坐标(方块占 [lx,lx+1]×...)，MeshInstance3D
 #            position = chunk.position*16，二者叠加即世界坐标。
 #          - 网格句柄归属 WorldManager.render_cache（Vector3i->{solid,water}），
@@ -11,6 +11,12 @@
 #            固体与水分别生成两个独立网格（水独立为未来透明水面预留）。
 #          - 纹理查询用 TextureManager.get_atlas_uv()（共享材质图集 UV），
 #            不改动 get_uv() 的整张图语义。
+#          - 每个面的四边形以【每角点=(位置偏移, UV)】显式给出，而非 p0+两个轴：
+#            (a) 保证 4 角点落在方块表面，展开为完整 1×1 单元（真实体积）；
+#            (b) 两三角形 (v0,v1,v2)+(v0,v2,v3) 的叉积 = 该面外法线（正面向外、
+#                背面剔除可见）；
+#            (c) 对顶面与四个侧面，uv.y=0(贴图顶行，即草皮条/草面)对齐方块顶边，
+#                uv.y=1 在底边 → 侧面贴图直立不倒置。
 # ============================================================================
 class_name MeshBuilder
 extends RefCounted
@@ -25,18 +31,53 @@ const FACE_NORMALS := [
 	Vector3(1, 0, 0),    # 5 FACE_RIGHT  东面(+X)
 ]
 
-# 每个面的四边形参数：p0=角点(所在面最小角)，u/v=两块内单位方向。
-# 约定 u×v == 对应外法线，保证以逆时针(正面)面向观察者（背面剔除可见），
-# 且 c0..c3 = p0, p0+u, p0+u+v, p0+v 全部落在该方块的 [0,1]^3 单元内。
-const FACE_GEOM := {
-	# face: 0 底,1 顶,2 北(-Z),3 南(+Z),4 西(-X),5 东(+X)
-	0: [Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 0, 1)],  # BOTTOM
-	1: [Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)],  # TOP
-	2: [Vector3(0, 0, 0), Vector3(0, 1, 0), Vector3(1, 0, 0)],  # BACK (-Z)
-	3: [Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)],  # FRONT (+Z)
-	4: [Vector3(0, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0)],  # LEFT (-X)
-	5: [Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1)],  # RIGHT (+X)
-}
+# 每个面：4 个角点 [位置偏移(方块内0..1), UV(该面0..1)]。
+# 角点顺序保证叉积 = FACE_NORMALS[face]（正面向外/CCW）；
+# 侧面/顶面 uv.y=0 在方块顶边(贴图顶行=草皮条)、uv.y=1 在底边。
+const FACE_QUADS := [
+	# 0 BOTTOM 底面(泥土，方向无要求)，法线 (0,-1,0)
+	[
+		[Vector3(0, 0, 0), Vector2(0, 0)],
+		[Vector3(1, 0, 0), Vector2(1, 0)],
+		[Vector3(1, 0, 1), Vector2(1, 1)],
+		[Vector3(0, 0, 1), Vector2(0, 1)],
+	],
+	# 1 TOP 顶面(草面)，法线 (0,1,0)
+	[
+		[Vector3(0, 1, 0), Vector2(0, 0)],
+		[Vector3(0, 1, 1), Vector2(1, 0)],
+		[Vector3(1, 1, 1), Vector2(1, 1)],
+		[Vector3(1, 1, 0), Vector2(0, 1)],
+	],
+	# 2 BACK 北面(-Z)，草皮条朝上，法线 (0,0,-1)
+	[
+		[Vector3(0, 1, 0), Vector2(0, 0)],
+		[Vector3(1, 1, 0), Vector2(1, 0)],
+		[Vector3(1, 0, 0), Vector2(1, 1)],
+		[Vector3(0, 0, 0), Vector2(0, 1)],
+	],
+	# 3 FRONT 南面(+Z)，草皮条朝上，法线 (0,0,1)
+	[
+		[Vector3(1, 1, 1), Vector2(1, 0)],
+		[Vector3(0, 1, 1), Vector2(0, 0)],
+		[Vector3(0, 0, 1), Vector2(0, 1)],
+		[Vector3(1, 0, 1), Vector2(1, 1)],
+	],
+	# 4 LEFT 西面(-X)，草皮条朝上，法线 (-1,0,0)
+	[
+		[Vector3(0, 1, 1), Vector2(1, 0)],
+		[Vector3(0, 1, 0), Vector2(0, 0)],
+		[Vector3(0, 0, 0), Vector2(0, 1)],
+		[Vector3(0, 0, 1), Vector2(1, 1)],
+	],
+	# 5 RIGHT 东面(+X)，草皮条朝上，法线 (1,0,0)
+	[
+		[Vector3(1, 1, 0), Vector2(0, 0)],
+		[Vector3(1, 1, 1), Vector2(1, 0)],
+		[Vector3(1, 0, 1), Vector2(1, 1)],
+		[Vector3(1, 0, 0), Vector2(0, 1)],
+	],
+]
 
 # 面亮度（顶点颜色乘数，MC 风明暗）。索引对齐 face 0..5。
 const FACE_BRIGHTNESS := {
@@ -48,12 +89,19 @@ const FACE_BRIGHTNESS := {
 	5: Color(0.8, 0.8, 0.8),   # RIGHT
 }
 
+static var _face_checked := false
+
 
 # 构建单个区块的固体网格与水网格，并把结果登记到 world.render_cache。
 static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 	var origin_v3 := chunk.position
 	# 1) 释放旧网格（render_cache 中该区块已有的 MeshInstance3D）
 	world.clear_render(origin_v3)
+
+	# 首次构建前自检面数据：每面叉积=外法线 且 角点在[0,1]/UV在[0,1]
+	if not _face_checked:
+		_face_checked = true
+		_face_self_check()
 
 	var st_solid := SurfaceTool.new()
 	st_solid.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -85,22 +133,10 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 					if not (nb == GlobalConfig.BLOCK_AIR or nb == -1):
 						continue
 
-					# 5) 四顶点 + UV（逆时针；见类头 u×v=外法线约定）
+					# 5) 面 4 角点：位置 = block_origin + 偏移；
+					#    UV   = atlas_rect.position + 面内uv * atlas_rect.size
 					var rect := TextureManager.get_atlas_uv(id, face)
-					var geo: Array = FACE_GEOM[face]
-					var p0: Vector3 = geo[0]
-					var u: Vector3 = geo[1]
-					var v: Vector3 = geo[2]
-					var c0: Vector3 = block_origin + p0
-					var c1: Vector3 = block_origin + p0 + u
-					var c2: Vector3 = block_origin + p0 + u + v
-					var c3: Vector3 = block_origin + p0 + v
-					var uv0 := rect.position
-					var uv1 := rect.position + Vector2(rect.size.x, 0.0)
-					var uv2 := rect.position + Vector2(rect.size.x, rect.size.y)
-					var uv3 := rect.position + Vector2(0.0, rect.size.y)
-
-					# 6) 顶点颜色按面亮度
+					var quads: Array = FACE_QUADS[face]
 					var color: Color = FACE_BRIGHTNESS[face]
 
 					var st := st_solid
@@ -110,7 +146,19 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 					else:
 						solid_verts += 4
 
-					_emit_quad(st, c0, c1, c2, c3, uv0, uv1, uv2, uv3, color)
+					var pos := [
+						block_origin + (quads[0][0] as Vector3),
+						block_origin + (quads[1][0] as Vector3),
+						block_origin + (quads[2][0] as Vector3),
+						block_origin + (quads[3][0] as Vector3),
+					]
+					var uv := [
+						rect.position + (quads[0][1] as Vector2) * rect.size,
+						rect.position + (quads[1][1] as Vector2) * rect.size,
+						rect.position + (quads[2][1] as Vector2) * rect.size,
+						rect.position + (quads[3][1] as Vector2) * rect.size,
+					]
+					_emit_quad(st, pos[0], pos[1], pos[2], pos[3], uv[0], uv[1], uv[2], uv[3], color)
 
 	# 6) 提交网格（空则句柄置 null、不建实例）
 	var solid_mesh := _commit_if_used(st_solid, solid_verts)
@@ -133,7 +181,7 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 	chunk.dirty = false
 
 
-# 生成一个四边形（两三角形 0,1,2 与 0,2,3，逆时针）。顶点顺序由 c0..c3 保证。
+# 生成一个四边形（两三角形 0,1,2 与 0,2,3；角点顺序已保证 CCW/外法线）。
 static func _emit_quad(st: SurfaceTool, c0: Vector3, c1: Vector3, c2: Vector3, c3: Vector3, uv0: Vector2, uv1: Vector2, uv2: Vector2, uv3: Vector2, color: Color) -> void:
 	# 三角形 1: c0,c1,c2
 	st.set_color(color)
@@ -172,3 +220,23 @@ static func _make_instance(mesh: Mesh, chunk_pos: Vector3i, material: Material) 
 	mi.material_override = material
 	mi.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
 	return mi
+
+
+# 自检：每个面的 (v1-v0)×(v2-v0) 应 == 该面外法线，角点在[0,1]、UV在[0,1]。
+static func _face_self_check() -> void:
+	for face in range(6):
+		var q: Array = FACE_QUADS[face]
+		var p0: Vector3 = q[0][0]
+		var p1: Vector3 = q[1][0]
+		var p2: Vector3 = q[2][0]
+		var n: Vector3 = (p1 - p0).cross(p2 - p0).normalized()
+		var want: Vector3 = FACE_NORMALS[face]
+		if n.dot(want) < 0.999:
+			push_warning("[MeshBuilder] FACE %d 法线错误： got %s want %s" % [face, n, want])
+		for corner in q:
+			var pos: Vector3 = corner[0]
+			var tuv: Vector2 = corner[1]
+			if pos.x < 0.0 or pos.y < 0.0 or pos.z < 0.0 or pos.x > 1.0 or pos.y > 1.0 or pos.z > 1.0:
+				push_warning("[MeshBuilder] FACE %d 角点越界： %s" % [face, pos])
+			if tuv.x < 0.0 or tuv.y < 0.0 or tuv.x > 1.0 or tuv.y > 1.0:
+				push_warning("[MeshBuilder] FACE %d UV 越界： %s" % [face, tuv])

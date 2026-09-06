@@ -34,17 +34,16 @@ func _test_world() -> void:
 	add_child(world)
 	_check(world.world_data.size() == 16, "WorldManager 应加载 16 个区块 (实际 %d)" % world.world_data.size())
 
-	# 内部区域取样：(gx, gy, gz)
+	# 内部区域取样：(gx, gy, gz) —— 草顶高原
 	_check(world.get_block(0, 0, 0) == GlobalConfig.BLOCK_STONE, "内部 y0 应为石头")
 	_check(world.get_block(0, 5, 0) == GlobalConfig.BLOCK_GRASS, "内部 y5 应为草")
-	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_WATER, "内部 y6 应为水")
-	_check(world.get_block(0, 7, 0) == GlobalConfig.BLOCK_AIR, "内部 y7 应为空气")
-	# 边界石墙取样（世界边界 -32 与 31）
-	_check(world.get_block(-32, 0, 0) == GlobalConfig.BLOCK_STONE, "边界墙 x=-32 y0 应为石头")
-	_check(world.get_block(-32, 5, 0) == GlobalConfig.BLOCK_STONE, "边界墙 x=-32 y5 应为石头")
-	_check(world.get_block(-32, 6, 0) == GlobalConfig.BLOCK_AIR, "边界墙 x=-32 y6 应为空气")
-	_check(world.get_block(31, 0, 31) == GlobalConfig.BLOCK_STONE, "边界墙 x=31,z=31 y0 应为石头")
-	_check(world.get_block(0, 5, 31) == GlobalConfig.BLOCK_STONE, "边界墙 z=31 y5 应为石头")
+	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_AIR, "内部 y6 应为空气(草顶为地表)")
+	# 最外一圈水沟取样（世界边界 -32 与 31）
+	_check(world.get_block(-32, 0, 0) == GlobalConfig.BLOCK_WATER, "水沟 x=-32 y0 应为水")
+	_check(world.get_block(-32, 5, 0) == GlobalConfig.BLOCK_WATER, "水沟 x=-32 y5 应为水")
+	_check(world.get_block(-32, 6, 0) == GlobalConfig.BLOCK_AIR, "水沟 x=-32 y6 应为空气")
+	_check(world.get_block(31, 0, 31) == GlobalConfig.BLOCK_WATER, "水沟 x=31,z=31 y0 应为水")
+	_check(world.get_block(0, 5, 31) == GlobalConfig.BLOCK_WATER, "水沟 z=31 y5 应为水")
 	# 负数安全取模：-1 应落在区块 -1 的本地坐标 15
 	_check(world.get_block(-1, 5, 0) == GlobalConfig.BLOCK_GRASS, "x=-1 y5 应为草(负坐标取模正确)")
 	# 未加载区块（x=5,y=1 之外）→ -1
@@ -53,7 +52,7 @@ func _test_world() -> void:
 	var chunk_a: SubChunk = world.world_data[Vector3i(0, 0, 0)]
 	var dirty_after_build: bool = chunk_a.dirty
 	world.set_block(0, 6, 0, GlobalConfig.BLOCK_STONE)
-	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_STONE, "set_block 后 y6 应变为石头")
+	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_STONE, "set_block 后内部 y6 应变为石头")
 	_check(chunk_a.dirty == true and dirty_after_build == false, "构建后 dirty=false，set_block 后应变 true")
 
 func _test_textures() -> void:
@@ -92,6 +91,11 @@ func _test_meshes() -> void:
 		if water != null:
 			water_count += 1
 	_check(solid_count == 16, "每个区块都应有固体网格 (实际 %d)" % solid_count)
-	# 内部区块含水的应存在水网格
+	# 纯内部区块无外围水沟 → 无水网格；(含最外一圈的区块) 应有水网格
 	var interior_entry: Dictionary = _world.render_cache[Vector3i(0, 0, 0)]
-	_check(interior_entry.get("water") != null, "区块(0,0,0) 应有水网格")
+	_check(interior_entry.get("water") == null, "纯内部区块(0,0,0) 不应有水网格")
+	var moat_entry: Dictionary = _world.render_cache[Vector3i(-2, 0, -2)]
+	_check(moat_entry.get("water") != null, "含水沟区块(-2,0,-2) 应有水网格")
+	# 非"薄片"体积：内部区块固体网格应覆盖 ~6 层高度(石头0~4+草5)，而非单层薄壳
+	var ab0: AABB = interior_entry.get("solid").mesh.get_aabb()
+	_check(ab0.size.y > 3.0 and ab0.size.y < 7.0, "内部区块固体网格 AABB 高度应≈6层 (实际 %.1f)" % ab0.size.y)
