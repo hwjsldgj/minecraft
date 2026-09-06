@@ -38,6 +38,16 @@ var texture_cache: Dictionary = {}
 # 品红占位图缓存（避免对每个缺失键都重复生成 + 重复告警）
 var _placeholder: Texture2D = null
 
+# ===== 第二阶段：运行时图集与共享材质 =====
+# 说明：为使"多个方块共享一块 StandardMaterial3D 而各显其纹理"，把
+#       BLOCK_TEXTURE_KEYS 中出现的去重纹理拼成一张图集。get_uv() 的
+#       "整张图"语义保持不变；图集查询走独立的 get_atlas_uv()，接口隔离。
+var _atlas_texture: ImageTexture = null
+# 键 = 纹理键名，值 = 该键在图集中的归一化 UV 子矩形（Rect2, 0~1）
+var _atlas_uv: Dictionary = {}
+var _shared_material: StandardMaterial3D = null
+var _water_material: StandardMaterial3D = null
+
 
 func _ready() -> void:
 	_scan_textures()
@@ -99,3 +109,116 @@ func get_uv(block_id: int, face: int) -> Rect2:
 	var key: String = BLOCK_TEXTURE_KEYS[block_id][face]
 	get_texture_by_key(key)  # 预取缓存/占位，保证资源可用（返回值暂未使用）
 	return Rect2(0, 0, 1, 1)
+
+
+# ===== 图集：单张共享材质支撑多方块贴图 =====
+
+# 懒构建运行时图集：把 BLOCK_TEXTURE_KEYS 用到的去重纹理按网格拼到一张 ImageTexture，
+# 并回填 _atlas_uv（texture_key -> 归一化子矩形）。缺键纹理走品红占位，永不崩溃。
+func _ensure_atlas() -> void:
+	if _atlas_texture != null:
+		return
+
+	# 收集所有被引用的去重纹理键（排序保证布局稳定）
+	var keys: Array = []
+	for block_id in BLOCK_TEXTURE_KEYS:
+		var face_keys: Array = BLOCK_TEXTURE_KEYS[block_id]
+		for k in face_keys:
+			if not keys.has(k):
+				keys.append(k)
+	keys.sort()
+
+	var count := keys.size()
+	if count == 0:
+		push_warning("[TextureManager] 未配置任何方块纹理，图集为空。")
+		return
+
+	# 方块贴图通常为 16×16 正方形；MC 动画贴图（水/岩浆/火等）为垂直条
+	# （宽 w × 高 n*w），此处统一取【首帧】作为该键在静态方块上的贴图，
+	# 以免整条被拼入图集。若正方形用整张。帧边长即其宽度。
+	var tile := 16
+	var frame_rect: Dictionary = {}  # key -> 该键在图集来源中要截取的源区域
+	for k in keys:
+		var t := get_texture_by_key(k)
+		var w := t.get_width()
+		var h := t.get_height()
+		var rect_src := Rect2i(0, 0, w, h)
+		if h > w and h % w == 0:
+			rect_src = Rect2i(0, 0, w, w)  # 动画条：仅取第一帧 w×w
+		frame_rect[k] = rect_src
+		tile = max(tile, w)
+
+	# 排布成尽量接近方形的网格，再补齐到 2 的幂（兼容老 GL 对 NPOT 的顾虑）
+	var cols := int(ceil(sqrt(float(count))))
+	var rows := int(ceil(float(count) / float(cols)))
+	var need_w := cols * tile
+	var need_h := rows * tile
+	var pw := 1
+	while pw < need_w:
+		pw *= 2
+	var ph := 1
+	while ph < need_h:
+		ph *= 2
+
+	var atlas_img := Image.create_empty(pw, ph, false, Image.FORMAT_RGBA8)
+	atlas_img.fill(Color(0, 0, 0, 1))  # 透明黑底（未被占用区不会用于采样）
+
+	for i in count:
+		var key: String = keys[i]
+		var tex := get_texture_by_key(key)
+		var sub := tex.get_image()
+		if sub == null:
+			continue
+		# 统一转 RGBA8 以便 blit_rect
+		if sub.get_format() != Image.FORMAT_RGBA8:
+			sub.convert(Image.FORMAT_RGBA8)
+		var src: Rect2i = frame_rect[key]
+		var col := i % cols
+		var row := i / cols
+		atlas_img.blit_rect(sub, src, Vector2i(col * tile, row * tile))
+		var uv := Rect2(float(col * tile) / float(pw), float(row * tile) / float(ph), float(tile) / float(pw), float(tile) / float(ph))
+		_atlas_uv[key] = uv
+
+	_atlas_texture = ImageTexture.create_from_image(atlas_img)
+	print("[TextureManager] 构建运行时图集： %d 张去重纹理(单元%d×%d) → %d×%d" % [count, tile, tile, pw, ph])
+
+
+# 返回某方块某面在图集中的归一化 UV 子矩形（供共享材质网格采样）。
+# 独立于 get_uv()——get_uv 保持"整张图"语义不变，本方法专供图集材质使用。
+func get_atlas_uv(block_id: int, face: int) -> Rect2:
+	if not BLOCK_TEXTURE_KEYS.has(block_id):
+		push_warning("[TextureManager] 未配置方块 ID=%d 的纹理。" % block_id)
+		return Rect2(0, 0, 1, 1)
+	if face < 0 or face > 5:
+		push_warning("[TextureManager] 非法面索引： %d（应为 0~5）。" % face)
+		return Rect2(0, 0, 1, 1)
+
+	_ensure_atlas()
+	var key: String = BLOCK_TEXTURE_KEYS[block_id][face]
+	if _atlas_uv.has(key):
+		return _atlas_uv[key]
+	# 图集未命中（理论上不会）回退整张图
+	return Rect2(0, 0, 1, 1)
+
+
+# 返回共享的固体材质：单张图集 + 顶点色作反照率 + unshaded（少 DrawCall、适配老核显）。
+func get_shared_material() -> StandardMaterial3D:
+	if _shared_material == null:
+		_ensure_atlas()
+		_shared_material = StandardMaterial3D.new()
+		_shared_material.albedo_texture = _atlas_texture
+		_shared_material.vertex_color_use_as_albedo = true
+		_shared_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		# 近邻过滤：保像素风、防图集相邻格边缘渗色
+		_shared_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	return _shared_material
+
+
+# 返回共享的水材质：当前为纯色蓝 + 完全不透明（透明水面留待后续阶段）。
+func get_water_material() -> StandardMaterial3D:
+	if _water_material == null:
+		_water_material = StandardMaterial3D.new()
+		_water_material.albedo_color = Color(0.2, 0.5, 0.8)
+		_water_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		_water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return _water_material

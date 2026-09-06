@@ -1,6 +1,17 @@
-[gd_scene format=3 uid="uid://dhehcb5mt8fno"]
+[gd_scene load_steps=3 format=3 uid="uid://dhehcb5mt8fno"]
 
-[ext_resource type="Script" uid="uid://cdn5anhc231gj" path="res://scripts/world/WorldManager.gd" id="1_o5qli"]
+[ext_resource type="Script" uid="uid://cdn5anhc231gj" path="res://scripts/world/WorldManager.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/rendering/editor_camera.gd" id="2_cam"]
 
-[node name="Node3D" type="Node3D" unique_id=337650550]
-script = ExtResource("1_o5qli")
+[node name="Main" type="Node3D"]
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("1_world")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 20, 0)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = true
+fov = 65.0
+script = ExtResource("2_cam")
