@@ -334,19 +334,35 @@ func get_shared_material() -> StandardMaterial3D:
 
 
 # 液体材质参数（集中配置，便于未来扩展其它液体：岩浆/蜂蜜等）
-const LIQUID_ALBEDO := Color(0.2, 0.5, 0.8, 0.55)
+# LIQUID_ALBEDO 现为"白色 + 透明度"：白色即不染色，直接显示 water_still 贴图本身；
+# 透明度沿用原来的 0.55。
+const LIQUID_ALBEDO := Color(1, 1, 1, 0.55)
 const LIQUID_RENDER_PRIORITY := 1
 
+# 水面参数（可 @export 调整；不改变透明模式与深度策略）
+@export var water_texture_key := "water_still"   # 水面 albedo 所用贴图键
+@export var water_alpha := 0.55                  # 水面不透明度（沿用原值）
+@export var water_tint := Color(1, 1, 1)         # 染色；白色=原样显示贴图
 
-# 返回共享的水材质：半透明蓝色（可透过水体看到环境；水下另有雾效补强）。
-# 双面渲染：置身影内/水中均可见水面。不使用自定义着色器，适配老核显。
+
+# 返回共享的水材质：带 water_still 贴图的半透明水面（可透过水体看到环境；水下另有雾效补强）。
+# 双面渲染：置身影内/水中均可见水面。StandardMaterial3D + 无自定义着色器，适配老核显。
+#
+# 关于 albedo_texture：水网格的 UV 来自 MeshBuilder 里的 get_atlas_uv(BLOCK_WATER, face)，
+# 是【图集内】的归一化子矩形（water_still 单元）。因此 albedo 必须绑定【图集】：单独绑定
+# 16×16 的 water_still 会让归一化 UV 采到错误位置。图集里该单元就是 water_still.png 的
+# 逐像素拷贝（见 _ensure_atlas），所以水面显示的就是 water_still 贴图本身。
 func get_water_material() -> StandardMaterial3D:
 	if _water_material == null:
+		_ensure_atlas()
 		_water_material = StandardMaterial3D.new()
-		_water_material.albedo_color = LIQUID_ALBEDO
+		_water_material.albedo_texture = _atlas_texture
+		_water_material.albedo_color = Color(water_tint.r, water_tint.g, water_tint.b, water_alpha)
 		_water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_water_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 		_water_material.render_priority = LIQUID_RENDER_PRIORITY
 		_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		# 近邻过滤：保像素风、防图集相邻格边缘渗色（与固体材质一致）
+		_water_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	return _water_material
