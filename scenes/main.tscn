@@ -1,9 +1,10 @@
-[gd_scene load_steps=7 format=3 uid="uid://dhehcb5mt8fno"]
+[gd_scene load_steps=8 format=3 uid="uid://dhehcb5mt8fno"]
 
 [ext_resource type="Script" uid="uid://cdn5anhc231gj" path="res://scripts/world/WorldManager.gd" id="1_world"]
 [ext_resource type="Script" path="res://scripts/player/PlayerController.gd" id="2_player"]
 [ext_resource type="Script" path="res://scripts/player/CameraController.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/player/WaterEffectController.gd" id="4_water_fx"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="5_hud"]
 
 [sub_resource type="CapsuleShape3D" id="cap1"]
 radius = 0.4
@@ -41,3 +42,5 @@ script = ExtResource("3_cam")
 
 [node name="WaterEffectController" type="Node3D" parent="Player"]
 script = ExtResource("4_water_fx")
+
+[node name="HUD" parent="." instance=ExtResource("5_hud")]

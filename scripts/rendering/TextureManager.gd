@@ -198,6 +198,12 @@ func _ensure_atlas() -> void:
 	print("[TextureManager] 构建运行时图集： %d 张去重纹理(单元%d×%d) → %d×%d" % [count, tile, tile, pw, ph])
 
 
+# 只读访问运行时图集（UI 缩略图等复用，避免重复加载纹理）
+func get_atlas_texture() -> Texture2D:
+	_ensure_atlas()
+	return _atlas_texture
+
+
 # 返回某方块某面在图集中的归一化 UV 子矩形（供共享材质网格采样）。
 # 独立于 get_uv()——get_uv 保持"整张图"语义不变，本方法专供图集材质使用。
 func get_atlas_uv(block_id: int, face: int) -> Rect2:
