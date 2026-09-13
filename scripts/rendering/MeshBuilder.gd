@@ -231,46 +231,51 @@ static func _make_instance(mesh: Mesh, chunk_pos: Vector3i, material: Material) 
 	return mi
 
 
-# 为区块固体方块生成碰撞：每个"暴露"固体方块一个 BoxShape3D(1×1×1)，
-# 合并到同一个 StaticBody3D 下。凸体不存在"内外部"问题，彻底避免穿模。
-# 水/空气不参与碰撞；被完全包住的内部方块不生成（玩家无法到达）。
-static func _make_collider(world: WorldManager, chunk: SubChunk, chunk_pos: Vector3i) -> StaticBody3D:
+# 未来更激进合并（二维/三维贪心合并）的开关：true=竖向游程合并；false=每方块一盒。
+# 两种模式都保证【固体体积内处处有碰撞】，不跳过内部方块。
+static var merge_vertical_runs := true
+
+
+# 为区块固体生成碰撞：覆盖【全部】非空气/非水方块（含内部），合并到同一个 StaticBody3D。
+# 按列竖向累积连续固体段，每段 1 个 BoxShape3D（凸体，无内外之分，不会穿模）。
+static func _make_collider(_world: WorldManager, chunk: SubChunk, chunk_pos: Vector3i) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
 	body.collision_layer = 1
 	body.collision_mask = 1
 	var size := GlobalConfig.CHUNK_SIZE
-	var cx := chunk_pos.x
-	var cz := chunk_pos.z
 	var added := 0
-	for ly in range(size):
-		for lz in range(size):
-			for lx in range(size):
+	for lz in range(size):
+		for lx in range(size):
+			var ly := 0
+			while ly < size:
 				var id: int = chunk.blocks[chunk.get_index(lx, ly, lz)]
 				if id == GlobalConfig.BLOCK_AIR or id == GlobalConfig.BLOCK_WATER:
+					ly += 1
 					continue
-				var gx := cx * size + lx
-				var gy := chunk_pos.y * size + ly
-				var gz := cz * size + lz
-				var exposed := false
-				for face in range(6):
-					var n: Vector3 = FACE_NORMALS[face]
-					var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
-					if nb == GlobalConfig.BLOCK_AIR or nb == -1 or nb == GlobalConfig.BLOCK_WATER:
-						exposed = true
-						break
-				if not exposed:
-					continue
-				var box := BoxShape3D.new()
-				box.size = Vector3.ONE
-				var cs := CollisionShape3D.new()
-				cs.shape = box
-				cs.position = Vector3(float(lx) + 0.5, float(ly) + 0.5, float(lz) + 0.5)
-				body.add_child(cs)
+				var run := 1
+				if merge_vertical_runs:
+					while ly + run < size:
+						var nid: int = chunk.blocks[chunk.get_index(lx, ly + run, lz)]
+						if nid == GlobalConfig.BLOCK_AIR or nid == GlobalConfig.BLOCK_WATER:
+							break
+						run += 1
+				_add_box(body, lx, ly, lz, run)
 				added += 1
+				ly += run
 	if added == 0:
 		return null
 	return body
+
+
+# 追加一个碰撞盒，覆盖柱段 (lx, ly..ly+run-1, lz)。未来 2D/3D 贪心合并的统一出口。
+static func _add_box(body: StaticBody3D, lx: int, ly: int, lz: int, run: int) -> void:
+	var box := BoxShape3D.new()
+	box.size = Vector3(1.0, float(run), 1.0)
+	var cs := CollisionShape3D.new()
+	cs.shape = box
+	cs.position = Vector3(float(lx) + 0.5, float(ly) + float(run) * 0.5, float(lz) + 0.5)
+	body.add_child(cs)
 
 
 # 自检：每个面的 (v1-v0)×(v2-v0) 应 == 该面外法线，角点在[0,1]、UV在[0,1]。
