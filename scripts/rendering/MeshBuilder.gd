@@ -128,12 +128,21 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 				var gz := cz * size + lz
 				var block_origin := Vector3(lx, ly, lz)
 
-				# 4) 六方向邻接剔除：仅当邻居为空气/未加载才生成该面
+				# 4) 六方向邻接剔除（透明感知）：
+				#   - 水：仅在与空气/未加载相邻处生成（水内部/水-固体之间不生成，省性能）
+				#   - 固体：水【不遮挡】，凡邻居为空气/未加载/水 都生成该面。
+				#     否则朝向水的固体面会被剔除 → 浸入水中会看穿固体、只见内壁。
+				var is_water_block := id == GlobalConfig.BLOCK_WATER
 				for face in range(6):
 					var n: Vector3 = FACE_NORMALS[face]
 					var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
-					if not (nb == GlobalConfig.BLOCK_AIR or nb == -1):
-						continue
+					var nb_air := nb == GlobalConfig.BLOCK_AIR or nb == -1
+					if is_water_block:
+						if not nb_air:
+							continue
+					else:
+						if not (nb_air or nb == GlobalConfig.BLOCK_WATER):
+							continue
 
 					# 5) 面 4 角点：位置 = block_origin + 偏移；
 					#    UV   = atlas_rect.position + 面内uv * atlas_rect.size
