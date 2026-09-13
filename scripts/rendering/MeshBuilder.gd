@@ -203,15 +203,17 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 	for face in range(6):
 		var n: Vector3 = FACE_NORMALS[face]
 		# 邻接剔除（透明感知）：
-		#   - 水：仅在与空气/未加载相邻处生成（水内部/水-固体之间不生成，省性能）
+		#   - 水：仅当邻居为【空气】时才渲染该面。
+		#     水↔水 / 水↔固体 / 水↔未加载(-1) 一律不渲染 —— 否则会看到水体内部
+		#     或外壳的侧面（相邻水块之间的内侧面本应被剔除）。
 		#   - 固体：水【不遮挡】，凡邻居为空气/未加载/水 都生成该面。
 		#     否则朝向水的固体面会被剔除 → 浸入水中会看穿固体、只见内壁。
 		var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
-		var nb_air := nb == GlobalConfig.BLOCK_AIR or nb == -1
 		if is_water_block:
-			if not nb_air:
+			if nb != GlobalConfig.BLOCK_AIR:
 				continue
 		else:
+			var nb_air := nb == GlobalConfig.BLOCK_AIR or nb == -1
 			if not (nb_air or nb == GlobalConfig.BLOCK_WATER):
 				continue
 

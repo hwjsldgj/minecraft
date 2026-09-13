@@ -26,6 +26,8 @@ func _ready() -> void:
 	_test_solid_next_to_water()
 	_test_water_color()
 	_test_type_change_no_ghost()
+	_test_unloaded_neighbor()
+	_test_air_rule()
 	print("[WaterFaceProbe] === 完成： %d 处断言失败 ===" % _fail)
 	get_tree().quit(_fail)
 
@@ -161,3 +163,25 @@ func _test_type_change_no_ghost() -> void:
 	_world.set_block(8, 5, 8, CA)
 	_world.flush_build_queue()
 	_check(_verts("water") == 0, "T5 水→空气 后水网格不得残留幽灵面，实测 %d 个面" % (_verts("water") / 6))
+
+
+# T6 水↔未加载(-1)：不渲染（剔除规则表四项之一）
+func _test_unloaded_neighbor() -> void:
+	# 卸载 -X 邻块，使 lx=0 的水块其 -X 邻居为"未加载"
+	_world.unload_chunk(Vector3i(-1, 0, 0))
+	_setup([[0, 5, 8, CW]])
+	_check(_verts("water") == 30,
+		"T6 水↔未加载(-1) 不渲染该面（应 5 个面），实测 %d" % (_verts("water") / 6))
+	_check(_faces_fully_on_plane("water", 0.0, 4.9, 6.1, 7.9, 9.1) == 0,
+		"T6 x=0 平面（朝未加载块）不得有完整面")
+	_world.load_chunk(Vector3i(-1, 0, 0))
+	_world.flush_build_queue()
+
+
+# T7 剔除规则表逐项确认：水↔空气=渲染（其余三种=不渲染，见 T1/T3/T6）
+func _test_air_rule() -> void:
+	_setup([[8, 5, 8, CW]])
+	_check(_verts("water") == 36, "T7 水四周皆为空气时应渲染 6 个面，实测 %d" % (_verts("water") / 6))
+	_setup([[8, 5, 8, CW], [8, 6, 8, CW]])
+	_check(_verts("water") == 60,
+		"T7 竖直相邻两块水应为 10 个面（水↔水不渲染），实测 %d" % (_verts("water") / 6))
