@@ -11,6 +11,10 @@ extends Node
 
 # 贴图目录（游戏打包时随 res:// 一并导出）
 const TEXTURE_DIR := "res://block/"
+# 图集缓存放盘路径（user://，不入版本库）
+const CACHE_PATH := "user://atlas_cache.res"
+# 缓存资源脚本（用 preload 而非全局类名，避免依赖 class_name 缓存）
+const AtlasCacheScript := preload("res://scripts/rendering/AtlasCache.gd")
 
 # 纯色占位尺寸（与原版贴图一致）
 const PLACEHOLDER_SIZE := 16
@@ -56,7 +60,100 @@ var _water_material: StandardMaterial3D = null
 
 
 func _ready() -> void:
+	# 优化4：优先进程内缓存（图集 + UV + 目录指纹），命中则跳过 928 张 PNG 的扫描与拼图。
+	if _load_from_cache():
+		return
 	_scan_textures()
+	_ensure_atlas()
+	_save_cache()
+
+
+# ===== 图集缓存（user://atlas_cache.res）=====
+
+# 目录指纹（廉价版）：对 928 个文件逐个 stat 需要 ~145ms，会抵消缓存收益，故改为
+#   1) block/ 目录自身的修改时间 —— 替换/改名会更新；
+#   2) block/ 下 .png 的【数量】—— 增删文件（目录 mtime 只有秒级精度，同秒内增删测不出）；
+#   3) 图集【实际引用到的】贴图（BLOCK_TEXTURE_KEYS 去重后，通常个位数）各自的最新修改时间
+#      —— 覆盖"原地改写某张贴图"的情况。未被任何方块引用的贴图不影响图集，无需纳入。
+func _get_dir_mtime() -> int:
+	var fp := FileAccess.get_modified_time(TEXTURE_DIR)
+	fp = fp * 31 + _count_png_files()
+	for k in _referenced_keys():
+		fp = fp * 31 + FileAccess.get_modified_time(TEXTURE_DIR + k + ".png")
+	return fp
+
+
+# block/ 下 .png 数量（只做一次目录枚举，不做逐文件 stat）
+func _count_png_files() -> int:
+	var dir := DirAccess.open(TEXTURE_DIR)
+	if dir == null:
+		return 0
+	var count := 0
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".png"):
+			count += 1
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	return count
+
+
+# 图集引用到的去重纹理键（排序，保证拼图布局与指纹都稳定）
+func _referenced_keys() -> Array:
+	var keys: Array = []
+	for block_id in BLOCK_TEXTURE_KEYS:
+		for k in BLOCK_TEXTURE_KEYS[block_id]:
+			if not keys.has(k):
+				keys.append(k)
+	keys.sort()
+	return keys
+
+
+# 尝试从缓存加载图集。命中返回 true；无缓存 / 损坏 / 目录已变 均返回 false（走重建）。
+func _load_from_cache() -> bool:
+	if not ResourceLoader.exists(CACHE_PATH):
+		return false
+	var res: Resource = ResourceLoader.load(CACHE_PATH)
+	if res == null:
+		push_warning("[TextureManager] 图集缓存无法解析，已忽略并重建： %s" % CACHE_PATH)
+		return false
+	var atlas = res.get("atlas")
+	var uv = res.get("atlas_uv")
+	var mtime = res.get("dir_mtime")
+	if atlas == null or not (uv is Dictionary) or (uv as Dictionary).is_empty():
+		push_warning("[TextureManager] 图集缓存内容不完整，已忽略并重建： %s" % CACHE_PATH)
+		return false
+	if int(mtime) != _get_dir_mtime():
+		print("[TextureManager] block/ 已变化，图集缓存失效，重新构建。")
+		return false
+	_atlas_texture = atlas
+	_atlas_uv = uv
+	# 命中时不再全量扫描：只按需加载 BLOCK_TEXTURE_KEYS 实际引用的少数贴图，
+	# 保证 get_texture_by_key()/texture_cache 与无缓存时行为一致。
+	_preload_block_textures()
+	print("[TextureManager] 图集缓存命中： %s（%d 张去重纹理）" % [CACHE_PATH, _atlas_uv.size()])
+	return true
+
+
+# 把缓存写盘（首次构建或将重建后）。失败仅告警，不影响本次运行。
+func _save_cache() -> void:
+	var res: Resource = AtlasCacheScript.new()
+	res.set("atlas", _atlas_texture)
+	res.set("atlas_uv", _atlas_uv)
+	res.set("dir_mtime", _get_dir_mtime())
+	var err := ResourceSaver.save(res, CACHE_PATH)
+	if err != OK:
+		push_warning("[TextureManager] 图集缓存写入失败（err=%d）： %s" % [err, CACHE_PATH])
+	else:
+		print("[TextureManager] 图集缓存已保存： %s" % CACHE_PATH)
+
+
+# 只加载 BLOCK_TEXTURE_KEYS 引用到的贴图（缓存命中时使用，通常仅个位数）
+func _preload_block_textures() -> void:
+	for block_id in BLOCK_TEXTURE_KEYS:
+		for k in BLOCK_TEXTURE_KEYS[block_id]:
+			get_texture_by_key(k)
 
 
 # 扫描并缓存 TEXTURE_DIR 下所有 .png。
@@ -88,6 +185,13 @@ func _scan_textures() -> void:
 func get_texture_by_key(key: String) -> Texture2D:
 	if texture_cache.has(key):
 		return texture_cache[key]
+	# 延迟加载：图集缓存命中时不再全量扫描目录，按键按需从磁盘加载
+	var path := TEXTURE_DIR + key + ".png"
+	if ResourceLoader.exists(path):
+		var tex := load(path) as Texture2D
+		if tex != null:
+			texture_cache[key] = tex
+			return tex
 	# 生成品红占位图并缓存，避免对同一缺失键重复告警
 	if _placeholder == null:
 		# Godot 4：Image.new() 为空图，需用 create_empty 分配尺寸与格式
@@ -126,13 +230,7 @@ func _ensure_atlas() -> void:
 		return
 
 	# 收集所有被引用的去重纹理键（排序保证布局稳定）
-	var keys: Array = []
-	for block_id in BLOCK_TEXTURE_KEYS:
-		var face_keys: Array = BLOCK_TEXTURE_KEYS[block_id]
-		for k in face_keys:
-			if not keys.has(k):
-				keys.append(k)
-	keys.sort()
+	var keys := _referenced_keys()
 
 	var count := keys.size()
 	if count == 0:

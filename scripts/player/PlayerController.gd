@@ -13,36 +13,37 @@
 extends CharacterBody3D
 class_name PlayerController
 
-# ===== 陆地参数（可调）=====
-@export var land_speed: float = 5.0
-@export var land_jump_velocity: float = 6.5
-@export var land_gravity: float = -20.0
+# ===== 陆地参数（编辑器内按组显示；默认值与既有手感一致）=====
+@export_group("Land")
+@export var land_speed: float = 5.0          # 陆地水平速度
+@export var land_jump: float = 6.5           # 起跳初速度
+@export var land_gravity: float = -20.0      # 重力加速度
 
-# ===== 液体参数（MC Wiki 手感触感参考值；与陆地分离，便于扩展其它液体）=====
-@export_group("Liquid")
-@export var liquid_swim_speed: float = 2.20        # 水面/完全浸没水平游速 (MC 2.20)
-@export var liquid_partial_speed: float = 1.97     # 部分浸入(浅水)水平速度 (MC 1.97)
-@export var liquid_down_speed: float = 1.81        # 完全水下向下游 (MC 1.81)
-@export var liquid_up_speed: float = 0.39          # 完全水下向上游 (MC 0.39)
-@export var liquid_surface_up_speed: float = 2.00  # 未完全浸没时上浮/出水
-@export var liquid_idle_sink_speed: float = 0.80   # 无输入时自然下沉速度
-@export var liquid_sink_accel: float = 4.0         # 垂直速度趋近率
-@export var liquid_drag: float = 0.8               # MC drag_factor（每游戏刻 20Hz）
-@export_group("")
+# ===== 液体参数（MC Wiki 手感参考值；与陆地分离，便于扩展其它液体）=====
+@export_group("Water")
+@export var water_speed: float = 2.20          # 水面/完全浸没水平游速 (MC 2.20)
+@export var water_partial_speed: float = 1.97  # 部分浸入(浅水)水平速度 (MC 1.97)
+@export var water_down: float = 1.81           # 完全水下向下游 (MC 1.81)
+@export var water_up: float = 0.39             # 完全水下向上游 (MC 0.39)
+@export var water_surface_up: float = 2.00     # 未完全浸没时上浮/出水
+@export var water_idle_sink: float = 0.80      # 无输入时自然下沉速度
+@export var water_sink_accel: float = 4.0      # 垂直速度趋近率
+@export var water_drag: float = 0.8            # MC drag_factor（每游戏刻 20Hz）
 
 # MC 游戏刻频率（用于把每刻阻力换算到帧）
 const LIQUID_TICK_RATE := 20.0
 
-# 身体中心相对原点偏移（脚底在原点，身高约 1.8 → 中心在 +0.9）
-@export var body_center_offset: float = 0.9
-@export var body_height: float = 1.8
-# 世界边界留边（胶囊半径）
-@export var world_half_width: float = 0.4
-
 # ===== 交互（子任务 4.1/4.2：DDA 破坏/放置 + 物品栏）=====
+@export_group("Interaction")
 @export var interact_reach: float = 4.0
 # 是否要求鼠标处于捕获状态才响应交互（无头测试可关闭以驱动输入链路）
 @export var require_mouse_capture: bool = true
+
+# ===== 碰撞体（胶囊：脚底在原点，身高 body_height，中心在 +body_center_offset）=====
+@export_group("Physics")
+@export var body_height: float = 1.8
+@export var body_radius: float = 0.4         # 胶囊半径（兼作世界边界留边）
+@export var body_center_offset: float = 0.9
 # 物品栏（9 格，数字键 1~9 切换；空槽 = -1）
 var inventory: Inventory = Inventory.new()
 # 当前待放置方块 ID：来自物品栏当前槽（只读，UI 与放置共用）
@@ -128,7 +129,7 @@ func can_place_at(target: Vector3i) -> bool:
 	if _world.get_block(target.x, target.y, target.z) != GlobalConfig.BLOCK_AIR:
 		return false  # 已占用（含未加载 -1）
 	# 玩家 AABB 与目标方块 AABB 相交检测
-	var r := world_half_width
+	var r := body_radius
 	var pmin := global_position - Vector3(r, 0.0, r)
 	var pmax := global_position + Vector3(r, body_height, r)
 	var bmin := Vector3(target)
@@ -200,27 +201,27 @@ func _physics_process(delta: float) -> void:
 
 	if in_water:
 		# 2) 水中水平：完全浸没=游泳速度；仅部分浸入=浅水速度（MC 2.20 / 1.97）
-		var h_speed := liquid_swim_speed if submerged else liquid_partial_speed
+		var h_speed := water_speed if submerged else water_partial_speed
 		if has_input:
 			velocity.x = direction.x * h_speed
 			velocity.z = direction.z * h_speed
 		else:
 			# 无输入：按 MC drag_factor（每游戏刻 20Hz）衰减
-			var drag := pow(liquid_drag, delta * LIQUID_TICK_RATE)
+			var drag := pow(water_drag, delta * LIQUID_TICK_RATE)
 			velocity.x *= drag
 			velocity.z *= drag
 		# 3) 水中垂直：空格上浮(水下 0.39/水面 2.0) / Shift 下沉(1.81) / 无输入缓沉
 		if Input.is_action_pressed("jump"):
-			velocity.y = liquid_up_speed if submerged else liquid_surface_up_speed
+			velocity.y = water_up if submerged else water_surface_up
 		elif Input.is_action_pressed("sneak"):
-			velocity.y = -liquid_down_speed
+			velocity.y = -water_down
 		else:
-			velocity.y = move_toward(velocity.y, -liquid_idle_sink_speed, liquid_sink_accel * delta)
+			velocity.y = move_toward(velocity.y, -water_idle_sink, water_sink_accel * delta)
 	else:
 		# 4) 陆地：重力 + 连跳 + 水平移动（与液体参数完全分离）
 		velocity.y += land_gravity * delta
 		if Input.is_action_pressed("jump") and is_on_floor():
-			velocity.y = land_jump_velocity
+			velocity.y = land_jump
 		if has_input:
 			velocity.x = direction.x * land_speed
 			velocity.z = direction.z * land_speed
@@ -231,6 +232,6 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	# 5) 世界边界硬碰撞（空气墙，与 GlobalConfig 严格一致，仅留胶囊半径）
-	position.x = clampf(position.x, float(GlobalConfig.WORLD_MIN_X) + world_half_width, float(GlobalConfig.WORLD_MAX_X) - world_half_width)
-	position.z = clampf(position.z, float(GlobalConfig.WORLD_MIN_Z) + world_half_width, float(GlobalConfig.WORLD_MAX_Z) - world_half_width)
+	position.x = clampf(position.x, float(GlobalConfig.WORLD_MIN_X) + body_radius, float(GlobalConfig.WORLD_MAX_X) - body_radius)
+	position.z = clampf(position.z, float(GlobalConfig.WORLD_MIN_Z) + body_radius, float(GlobalConfig.WORLD_MAX_Z) - body_radius)
 	position.y = clampf(position.y, float(GlobalConfig.WORLD_MIN_Y), float(GlobalConfig.WORLD_MAX_Y))

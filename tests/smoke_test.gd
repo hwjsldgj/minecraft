@@ -56,12 +56,14 @@ func _test_world() -> void:
 	_check(world.get_block(-10, 5, 0) == GlobalConfig.BLOCK_GRASS, "x=-10 y5 应为草(负坐标取模正确)")
 	# 未加载区块（x=5,y=1 之外）→ -1
 	_check(world.get_block(100, 5, 100) == -1, "越界未加载应返回 -1")
-	# set_block：加载/建网格后 dirty 已被复位为 false；写入后应重新置 true
+	# set_block（优化2后语义）：写入数据后【立即局部重建】受影响的面，
+	# 因此 dirty 在构建后与写入后都保持 false；判定依据改为"数据已变 + 确实走了局部重建"。
 	var chunk_a: SubChunk = world.world_data[Vector3i(0, 0, 0)]
 	var dirty_after_build: bool = chunk_a.dirty
 	world.set_block(0, 6, 0, GlobalConfig.BLOCK_STONE)
 	_check(world.get_block(0, 6, 0) == GlobalConfig.BLOCK_STONE, "set_block 后内部 y6 应变为石头")
-	_check(chunk_a.dirty == true and dirty_after_build == false, "构建后 dirty=false，set_block 后应变 true")
+	_check(dirty_after_build == false and chunk_a.dirty == false and MeshBuilder.last_patch_cells > 0,
+		"构建后 dirty=false，set_block 后应已即时局部重建（重算 %d 个方块）" % MeshBuilder.last_patch_cells)
 
 func _test_textures() -> void:
 	_check(TextureManager.texture_cache.size() > 0, "TextureManager 应缓存 >0 张纹理 (实际 %d)" % TextureManager.texture_cache.size())
@@ -115,6 +117,8 @@ func _test_meshes() -> void:
 	# 动态加载/卸载接口存在（框架已搭，暂不自动启用）
 	_check(_world.has_method("unload_chunk"), "WorldManager 应有 unload_chunk")
 	_check(_world.has_method("update_chunk_loading"), "WorldManager 应有 update_chunk_loading")
-	# 非"薄片"体积：内部区块固体网格应覆盖 ~6 层高度(石头0~4+草5)，而非单层薄壳
+	# 非"薄片"体积：内部区块固体网格应覆盖多层（石头0~4 + 草5），而非单层薄壳。
+	# 注：本测试前面已在 (0,6,0) 放了一块石头，且优化2后 set_block 会即时重建网格，
+	#     故该区块现在是 7 层高（0~6）。
 	var ab0: AABB = interior_entry.get("solid").mesh.get_aabb()
-	_check(ab0.size.y > 3.0 and ab0.size.y < 7.0, "内部区块固体网格 AABB 高度应≈6层 (实际 %.1f)" % ab0.size.y)
+	_check(ab0.size.y > 3.0 and ab0.size.y < 8.0, "内部区块固体网格 AABB 高度应≈7层 (实际 %.1f)" % ab0.size.y)
