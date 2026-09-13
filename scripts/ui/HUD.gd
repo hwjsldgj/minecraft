@@ -39,6 +39,7 @@ func _find_inventory() -> Inventory:
 func _build_crosshair() -> void:
 	var h := ColorRect.new()
 	h.color = Color.WHITE
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE  # 不允许 HUD 吞掉鼠标事件(否则视角无法转动)
 	h.anchor_left = 0.5
 	h.anchor_top = 0.5
 	h.anchor_right = 0.5
@@ -52,6 +53,7 @@ func _build_crosshair() -> void:
 
 	var v := ColorRect.new()
 	v.color = Color.WHITE
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.anchor_left = 0.5
 	v.anchor_top = 0.5
 	v.anchor_right = 0.5
@@ -67,6 +69,7 @@ func _build_crosshair() -> void:
 func _build_bar() -> void:
 	var total := float(_count) * SLOT_SIZE + float(_count - 1) * SLOT_GAP
 	_bar = Control.new()
+	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar.anchor_left = 0.5
 	_bar.anchor_right = 0.5
 	_bar.anchor_top = 1.0
@@ -81,6 +84,7 @@ func _build_bar() -> void:
 		var x := float(i) * (SLOT_SIZE + SLOT_GAP)
 		var hi := ColorRect.new()
 		hi.color = Color.WHITE
+		hi.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hi.position = Vector2(x - 2.0, -2.0)
 		hi.size = Vector2(SLOT_SIZE + 4.0, SLOT_SIZE + 4.0)
 		hi.visible = false
@@ -89,11 +93,13 @@ func _build_bar() -> void:
 
 		var bg := ColorRect.new()
 		bg.color = Color(0.10, 0.10, 0.10, 0.85)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bg.position = Vector2(x, 0.0)
 		bg.size = Vector2(SLOT_SIZE, SLOT_SIZE)
 		_bar.add_child(bg)
 
 		var tr := TextureRect.new()
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tr.position = Vector2(x + ZOOM_PX * 0.5, ZOOM_PX * 0.5)
 		tr.size = Vector2(SLOT_SIZE - ZOOM_PX, SLOT_SIZE - ZOOM_PX)
 		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED

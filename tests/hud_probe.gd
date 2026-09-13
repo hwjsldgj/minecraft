@@ -57,5 +57,18 @@ func _run() -> void:
 	_check(_hud.selected_index == 1, "按2后 selected_index 应为 1")
 	_check(_hud.slot_highlights[1].visible and not _hud.slot_highlights[0].visible, "高亮应跟随到槽1")
 
+	# 回归：HUD 所有 Control 必须忽略鼠标，否则会吞掉鼠标移动导致视角无法转动
+	_check(_all_controls_ignore_mouse(_hud), "HUD 全部 Control 应为 MOUSE_FILTER_IGNORE")
+
 	print("[HudProbe] === 完成： %d 处断言失败 ===" % _fail)
 	get_tree().quit(_fail)
+
+
+func _all_controls_ignore_mouse(node: Node) -> bool:
+	for c in node.get_children():
+		if c is Control and (c as Control).mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			printerr("[HudProbe] 未忽略鼠标的控件: ", c.name)
+			return false
+		if not _all_controls_ignore_mouse(c):
+			return false
+	return true
