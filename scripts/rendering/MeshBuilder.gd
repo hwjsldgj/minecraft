@@ -212,8 +212,21 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 		#   - 固体：水【不遮挡】，凡邻居为空气/未加载/水 都生成该面。
 		#     否则朝向水的固体面会被剔除 → 浸入水中会看穿固体、只见内壁。
 		var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
+		var clip_lo := 0.0
 		if is_water_block:
-			if nb != GlobalConfig.BLOCK_AIR:
+			# 水：邻居为空气 → 正常出侧面/顶面（按水位裁剪）；
+			#     邻居为水且水位更低、且这是【侧面】→ 补一块竖直连接面（从邻居水位到本格水位），
+			#     否则不同水位之间会出现断崖/缝隙（能透过空洞看到背后）；
+			#     邻居为水且不更低 / 邻居为固体 / 未加载 → 不渲染。
+			if nb == GlobalConfig.BLOCK_AIR:
+				pass
+			elif GlobalConfig.is_water(nb) and face != GlobalConfig.FACE_BOTTOM and face != GlobalConfig.FACE_TOP:
+				var nb_h := _water_height(world, Vector3i(gx + int(n.x), gy + int(n.y), gz + int(n.z)))
+				if nb_h < water_h - 0.001:
+					clip_lo = nb_h   # 连接面：只补低水位到本格水位之间的那一段
+				else:
+					continue
+			else:
 				continue
 		else:
 			var nb_air := nb == GlobalConfig.BLOCK_AIR or nb == -1
@@ -223,10 +236,10 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 		var rect := TextureManager.get_atlas_uv(id, face)
 		var quads: Array = FACE_QUADS[face]
 		var brightness: Color = FACE_BRIGHTNESS[face]
-		var c0 := block_origin + _clip_corner(quads[0][0] as Vector3, water_h)
-		var c1 := block_origin + _clip_corner(quads[1][0] as Vector3, water_h)
-		var c2 := block_origin + _clip_corner(quads[2][0] as Vector3, water_h)
-		var c3 := block_origin + _clip_corner(quads[3][0] as Vector3, water_h)
+		var c0 := block_origin + _clip_corner(quads[0][0] as Vector3, water_h, clip_lo)
+		var c1 := block_origin + _clip_corner(quads[1][0] as Vector3, water_h, clip_lo)
+		var c2 := block_origin + _clip_corner(quads[2][0] as Vector3, water_h, clip_lo)
+		var c3 := block_origin + _clip_corner(quads[3][0] as Vector3, water_h, clip_lo)
 		var u0 := rect.position + (quads[0][1] as Vector2) * rect.size
 		var u1 := rect.position + (quads[1][1] as Vector2) * rect.size
 		var u2 := rect.position + (quads[2][1] as Vector2) * rect.size
@@ -251,11 +264,12 @@ static func _water_height(world: WorldManager, pos: Vector3i) -> float:
 	return world.water_sim.surface_height(pos)
 
 
-# 把面角点的本地高度 1 缩放到水位高度 h（0 保持 0）：
-# 底面的角点全为 0 → 不变；侧面顶边与顶面角点由 1 变为 h。
-static func _clip_corner(v: Vector3, h: float) -> Vector3:
+# 把面角点的本地高度按水位裁剪：角点 y=1 → h（本格水位高度），y=0 → lo
+#   - 普通面 lo=0：底面满格、侧面从底裁到水位；
+#   - 连接面 lo=邻居水位：只补两块不同水位之间的那一段竖直面。
+static func _clip_corner(v: Vector3, h: float, lo: float = 0.0) -> Vector3:
 	if v.y <= 0.5:
-		return v
+		return Vector3(v.x, lo, v.z)
 	return Vector3(v.x, h, v.z)
 
 

@@ -63,7 +63,9 @@ static func raycast(world: WorldManager, origin: Vector3, direction: Vector3, ma
 		var id := world.get_block(cell[0], cell[1], cell[2])
 		if id == -1:
 			break  # 未加载：未知区域，终止且不命中
-		if id != GlobalConfig.BLOCK_AIR:
+		if id != GlobalConfig.BLOCK_AIR and not GlobalConfig.is_water(id):
+			# 水【不可命中】：射线直接穿过水，命中水后面的固体
+			# （因此水不会被破坏；在水中放置也只能依附于固体面）
 			var normal := Vector3i.ZERO
 			if axis == 0:
 				normal = Vector3i(-step[0], 0, 0)

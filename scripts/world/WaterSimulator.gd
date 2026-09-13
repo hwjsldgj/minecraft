@@ -186,10 +186,14 @@ func _update_cell(pos: Vector3i) -> void:
 # 生成永久水源，"水源永久存在"的语义就被破坏了（水源只能由玩家放置）。
 func _place(pos: Vector3i, level: int) -> void:
 	var id := FLOWING
+	# 必须先登记水位再写方块：set_block 会立刻触发局部网格重建，
+	# 若此时水位还没登记，surface_height() 会把该格当成水源渲染成 0.875/1.0（近似满格），
+	# 之后又没有别的重建机会去纠正 —— 这就是"流动水被渲染成满格高度"的根因。
+	levels[pos] = level
 	_writing = true
 	_world.set_block(pos.x, pos.y, pos.z, id)
 	_writing = false
 	if _world.get_block(pos.x, pos.y, pos.z) != id:
-		return   # 越界/区块未加载 → 未真正写入，不登记
-	levels[pos] = level
+		levels.erase(pos)   # 越界/区块未加载 → 未真正写入，回滚水位登记
+		return
 	enqueue(pos)

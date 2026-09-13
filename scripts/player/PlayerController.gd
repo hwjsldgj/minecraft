@@ -126,8 +126,10 @@ func can_place_at(target: Vector3i) -> bool:
 		return false
 	if target.y < GlobalConfig.WORLD_MIN_Y or target.y > GlobalConfig.WORLD_MAX_Y:
 		return false
-	if _world.get_block(target.x, target.y, target.z) != GlobalConfig.BLOCK_AIR:
-		return false  # 已占用（含未加载 -1）
+	var target_id := _world.get_block(target.x, target.y, target.z)
+	# 已占用（含未加载 -1）则拒绝；但【水可以覆盖】：在水里点击能放置方块并替换水
+	if target_id != GlobalConfig.BLOCK_AIR and not GlobalConfig.is_water(target_id):
+		return false
 	# 玩家 AABB 与目标方块 AABB 相交检测
 	var r := body_radius
 	var pmin := global_position - Vector3(r, 0.0, r)
