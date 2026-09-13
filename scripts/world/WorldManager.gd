@@ -22,8 +22,11 @@ var mesh_cache: Dictionary = {}
 # ===== 分帧构建调度（避免跨区块瞬间卡帧）=====
 # 待构建区块队列（存区块索引 Vector3i）
 var build_queue: Array = []
-# 每帧最多构建的区块数
+# 每帧最多构建的区块数（分帧调度的节流阀）
 @export var max_builds_per_frame: int = 2
+
+# 玩家当前所在区块：分帧构建时用它做"离玩家最近优先"的排序依据
+var _player_chunk := Vector3i.ZERO
 
 # ===== 启动时序：数据先行 → 渲染后置 → 物理最后 =====
 # 阶段1：所有初始区块的方块数据同步生成完毕（data_ready）
@@ -149,15 +152,47 @@ func rebuild_chunk(v3: Vector3i) -> void:
 		build_queue.append(v3)
 
 
-# 分帧构建：每帧最多构建 max_builds_per_frame 个待建区块。
+# 分帧构建：每帧最多构建 max_builds_per_frame 个待建区块，且【离玩家最近的优先】。
+# 队列为空时直接返回：不做任何遍历/分配，零额外开销。
 func _process(_delta: float) -> void:
+	if build_queue.is_empty():
+		return
 	var built := 0
-	while build_queue.size() > 0 and built < max_builds_per_frame:
-		var v3 = build_queue.pop_front()
+	while not build_queue.is_empty() and built < max_builds_per_frame:
+		var v3 := _pop_nearest()
 		if world_data.has(v3) and _needs_build(v3):
-			MeshBuilder.build_chunk(self, world_data[v3])
+			_build_one(v3)
 			built += 1
 	_check_render_ready()
+
+
+# 构建单个区块的【唯一出口】。未来接入多线程 / 任务系统时只替换此函数：
+# 把 MeshBuilder.build_chunk 丢进 WorkerThreadPool，主线程只负责提交结果。
+func _build_one(v3: Vector3i) -> void:
+	MeshBuilder.build_chunk(self, world_data[v3])
+
+
+# 从队列中取出【离玩家最近】的区块索引（玩家周围优先，其余按距离由近到远）。
+# 队列很短（≤ (2*load_distance+1)^2），线性扫描即可，且天然跟随玩家移动。
+func _pop_nearest() -> Vector3i:
+	var best := 0
+	var best_d := -1
+	for i in range(build_queue.size()):
+		var v3: Vector3i = build_queue[i]
+		var d := _chunk_distance_sq(v3)
+		if best_d < 0 or d < best_d:
+			best_d = d
+			best = i
+	var out: Vector3i = build_queue[best]
+	build_queue.remove_at(best)
+	return out
+
+
+# 区块到玩家的平面距离平方（只需比较远近，无需开方）
+func _chunk_distance_sq(v3: Vector3i) -> int:
+	var dx := v3.x - _player_chunk.x
+	var dz := v3.z - _player_chunk.z
+	return dx * dx + dz * dz
 
 
 # 立即清空构建队列（供测试/需要同步就绪时调用）。
@@ -196,6 +231,7 @@ func unload_chunk(v3: Vector3i) -> void:
 # 空气墙内的区块永不卸载 —— 当前 64×64 有限世界因此零卸载，只搭框架。
 func update_chunk_loading(player_pos: Vector3) -> void:
 	var center := _chunk_center_at(player_pos)
+	_player_chunk = center
 	# 1) 加载：半径内未加载且允许加载的区块
 	for dx in range(-load_distance, load_distance + 1):
 		for dz in range(-load_distance, load_distance + 1):
