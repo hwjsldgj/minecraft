@@ -183,6 +183,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# 0) 依据玩家位置动态加载/卸载区块（无限世界框架：数据先行 + 分帧渲染）
+	if _world != null:
+		_world.update_chunk_loading(global_position)
+
 	# 1) 体素判定：脚部进水=接触水；身体中心进水=完全浸没
 	var feet := global_position
 	var center := global_position + Vector3(0.0, body_center_offset, 0.0)

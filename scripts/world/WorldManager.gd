@@ -37,8 +37,14 @@ signal world_ready
 const INITIAL_CHUNK_MIN := -2
 const INITIAL_CHUNK_MAX := 1
 
-# 动态加载/卸载距离（区块数；本轮仅搭框架，暂不自动调用）
-const UNLOAD_DISTANCE := 5
+# ===== 动态加载 / 卸载（为无限世界铺路）=====
+# 加载距离（区块数，切比雪夫半径）：玩家所在区块周围该半径内的区块会被加载。
+@export var load_distance: int = 5
+# 卸载距离（区块数）：超出该半径的区块会被卸载。应大于 load_distance 以免来回抖动。
+@export var unload_distance: int = 8
+# 有限世界保护：为 true 时，加载/卸载都被限制在空气墙（±32）对应的区块范围内，
+# 空气墙内的区块永不卸载。接入无限世界时置为 false（或移除边界常量）即可全量生效。
+@export var limit_to_world_bounds: bool = true
 
 # 六邻接方向（用于跨区块边界重建）
 const NEIGHBOR_OFFSETS := [
@@ -183,40 +189,82 @@ func unload_chunk(v3: Vector3i) -> void:
 	world_data.erase(v3)
 
 
-# 依据玩家位置动态加载/卸载区块（本轮仅提供接口，暂不在 _process 中自动调用，
-# 以免当前 64×64 有限世界被卸载或越界生成；第 4 阶段取消空气墙后接入）。
+# 依据玩家位置动态加载/卸载区块（由 PlayerController 每帧调用）。
+#   加载：load_distance 内、尚未加载的区块 → 先生成数据（数据先行）再入队渲染。
+#   卸载：unload_distance 之外、且允许卸载的区块 → 释放网格/碰撞体并清理数据。
+# 空气墙保护：limit_to_world_bounds 为 true 时只在世界边界对应的区块内增删，
+# 空气墙内的区块永不卸载 —— 当前 64×64 有限世界因此零卸载，只搭框架。
 func update_chunk_loading(player_pos: Vector3) -> void:
-	var center := Vector3i(
-		int(floor(player_pos.x / float(GlobalConfig.CHUNK_SIZE))),
-		0,
-		int(floor(player_pos.z / float(GlobalConfig.CHUNK_SIZE)))
-	)
-	var load_distance: int = GlobalConfig.RENDER_DISTANCE
+	var center := _chunk_center_at(player_pos)
+	# 1) 加载：半径内未加载且允许加载的区块
 	for dx in range(-load_distance, load_distance + 1):
 		for dz in range(-load_distance, load_distance + 1):
 			var v3 := Vector3i(center.x + dx, 0, center.z + dz)
-			if not world_data.has(v3):
-				load_chunk(v3)
-	for v3 in world_data.keys():
+			if world_data.has(v3) or not _can_load(v3):
+				continue
+			load_chunk(v3)
+	# 2) 卸载：超出卸载半径且允许卸载的区块
+	for key in world_data.keys():
+		var v3: Vector3i = key
 		var dist: int = max(absi(v3.x - center.x), absi(v3.z - center.z))
-		if dist > UNLOAD_DISTANCE:
+		if dist > unload_distance and _can_unload(v3):
 			unload_chunk(v3)
 
 
-# 释放某区块在 render_cache 中的旧网格实例（存在则 queue_free 并移除缓存键），
-# 同时丢弃其顶点包/碰撞列缓存。
+# 玩家位置 → 所在区块索引（y 恒为 0，本轮世界只有一层）
+func _chunk_center_at(pos: Vector3) -> Vector3i:
+	return Vector3i(
+		int(floor(pos.x / float(GlobalConfig.CHUNK_SIZE))),
+		0,
+		int(floor(pos.z / float(GlobalConfig.CHUNK_SIZE)))
+	)
+
+
+# 该区块的方块范围是否与世界边界（空气墙）相交
+func _chunk_in_world_bounds(v3: Vector3i) -> bool:
+	var size := GlobalConfig.CHUNK_SIZE
+	var min_x := v3.x * size
+	var min_z := v3.z * size
+	return min_x <= GlobalConfig.WORLD_MAX_X and min_x + size - 1 >= GlobalConfig.WORLD_MIN_X \
+		and min_z <= GlobalConfig.WORLD_MAX_Z and min_z + size - 1 >= GlobalConfig.WORLD_MIN_Z
+
+
+# 是否允许加载该区块
+func _can_load(v3: Vector3i) -> bool:
+	if not limit_to_world_bounds:
+		return true
+	return _chunk_in_world_bounds(v3)
+
+
+# 是否允许卸载该区块（空气墙内的区块受保护，不卸载）
+func _can_unload(v3: Vector3i) -> bool:
+	if not limit_to_world_bounds:
+		return true
+	return not _chunk_in_world_bounds(v3)
+
+
+# 释放某区块在 render_cache 中的旧网格实例与缓存键：
+# MeshInstance3D(固体/水) 与 StaticBody3D(含其 CollisionShape3D) 均【立即释放】，
+# 同时丢弃顶点包/碰撞列缓存。卸载后该区块在渲染侧不留任何残留。
 func clear_render(v3: Vector3i) -> void:
 	mesh_cache.erase(v3)
 	if not render_cache.has(v3):
 		return
 	var entry: Dictionary = render_cache[v3]
-	if entry.get("solid") is MeshInstance3D:
-		entry["solid"].queue_free()
-	if entry.get("water") is MeshInstance3D:
-		entry["water"].queue_free()
-	if entry.get("collision") is StaticBody3D:
-		entry["collision"].queue_free()
+	_free_node(entry.get("solid"))
+	_free_node(entry.get("water"))
+	_free_node(entry.get("collision"))
 	render_cache.erase(v3)
+
+
+# 立即释放节点（先脱离父节点再 free；queue_free 会拖到帧末，测试与物理都希望即时生效）。
+# StaticBody3D 被释放时其 CollisionShape3D 子节点会一并释放。
+static func _free_node(n: Node) -> void:
+	if n == null or not is_instance_valid(n):
+		return
+	if n.get_parent() != null:
+		n.get_parent().remove_child(n)
+	n.free()
 
 
 # 根据世界坐标返回其所属区块；不存在时返回 null。
