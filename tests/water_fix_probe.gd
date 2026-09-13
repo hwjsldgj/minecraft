@@ -24,6 +24,7 @@ func _ready() -> void:
 	_test_place_into_water()
 	_test_level_joint()
 	_test_block_above_keeps_level()
+	_test_source_removed_dries()
 	print("[WaterFixProbe] === 完成： %d 处断言失败 ===" % _fail)
 	get_tree().quit(_fail)
 
@@ -45,6 +46,49 @@ func _reset_empty() -> void:
 		_chunk.blocks[i] = CA
 	_chunk.dirty = true
 	_world.rebuild_chunk(_cb)
+
+
+func _count_water() -> int:
+	var n := 0
+	for i in range(_chunk.blocks.size()):
+		if GlobalConfig.is_water(_chunk.blocks[i]):
+			n += 1
+	return n
+
+
+func _prepare_flat() -> void:
+	_reset_empty()
+	for lz in range(16):
+		for lx in range(16):
+			_chunk.blocks[_chunk.get_index(lx, 5, lz)] = CS
+	_chunk.dirty = true
+	_world.rebuild_chunk(_cb)
+
+
+# 问题2：切断水源后，水流应逐级干涸并最终全部消失
+func _test_source_removed_dries() -> void:
+	_prepare_flat()
+	_world.set_block(8, 6, 8, CW)
+	_sim.flush()
+	var before := _count_water()
+	_check(before > 10, "P5 前置：扩散后应有多格水（实测 %d）" % before)
+	_world.set_block(8, 6, 8, CA)   # 切断水源
+	_check(_sim.has_pending(), "P5 移除水源后应唤醒周围的水重新评估")
+	for i in range(40):
+		_sim.flush()
+		if _count_water() == 0:
+			break
+	_check(_count_water() == 0, "P5 切断水源后水流应全部干涸（剩余 %d 格）" % _count_water())
+	_check(not _sim.has_pending(), "P5 干涸完成后队列应为空（剩余 %d）" % _sim.pending_count())
+	# P5b 反向：水源仍在时，已扩散的水流不得被误判为断供而自行消失
+	_prepare_flat()
+	_world.set_block(8, 6, 8, CW)
+	_sim.flush()
+	var n0 := _count_water()
+	for i in range(20):
+		_sim.flush()
+	_check(_count_water() == n0,
+		"P5b 水源仍连通时水流不应自行消失（%d → %d）" % [n0, _count_water()])
 
 
 func _count_x9(vs: PackedVector3Array) -> int:

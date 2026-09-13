@@ -165,13 +165,23 @@ func _update_cell(pos: Vector3i) -> void:
 	if level < 0:
 		level = MAX_LEVEL   # 未登记水位的旧水：当作最远水位，不主动扩散
 
-	# 1) 向下优先：下方是空气 → 直接落下（下落不衰减水位）
+	# 水源（BLOCK_WATER）永久存在，只负责向外扩散
+	if id == SOURCE:
+		_spread(pos, level)
+		return
+	# 流动水：先确认仍与水源连通；断供则逐级干涸（水位 +1，超过 7 即消失）
+	if not _is_supported(pos, level):
+		_decay(pos, level)
+		return
+	_spread(pos, level)
+
+
+# 向外扩散：向下优先；下方为固体或水时向四个水平方向扩散，水位 +1；到 7 停止
+func _spread(pos: Vector3i, level: int) -> void:
 	var below := pos + Vector3i(0, -1, 0)
 	if _world.get_block(below.x, below.y, below.z) == GlobalConfig.BLOCK_AIR:
 		_place(below, level)
 		return
-
-	# 2) 下方为固体或水 → 向水平四方向扩散，水位 +1；到 7 停止
 	if level >= MAX_LEVEL:
 		return
 	for d in SIDES:
@@ -179,6 +189,48 @@ func _update_cell(pos: Vector3i) -> void:
 		if _world.get_block(np.x, np.y, np.z) != GlobalConfig.BLOCK_AIR:
 			continue
 		_place(np, level + 1)
+
+
+# 是否仍被水源"供给"：上方是水（下落水柱），或四邻中存在水位恰好小 1 的水。
+# 任一条件成立即认为连通；否则视为断供 → 该格开始干涸。
+func _is_supported(pos: Vector3i, level: int) -> bool:
+	if GlobalConfig.is_water(_world.get_block(pos.x, pos.y + 1, pos.z)):
+		return true
+	for d in SIDES:
+		var np: Vector3i = pos + d
+		if not GlobalConfig.is_water(_world.get_block(np.x, np.y, np.z)):
+			continue
+		var nl := get_level(np)
+		if nl >= 0 and nl == level - 1:
+			return true
+	return false
+
+
+# 断供干涸：水位逐级 +1（视觉上水面逐渐下降），超过 MAX_LEVEL 即移除该格水，
+# 并唤醒邻居继续评估 —— 于是水流会从断点开始逐格退回、最终全部消失。
+func _decay(pos: Vector3i, level: int) -> void:
+	if level + 1 > MAX_LEVEL:
+		levels.erase(pos)
+		_writing = true
+		_world.set_block(pos.x, pos.y, pos.z, GlobalConfig.BLOCK_AIR)
+		_writing = false
+		_wake_neighbors(pos)
+		return
+	levels[pos] = level + 1
+	# 再写一次同一个 id：只为触发该格及其邻域的网格重建（水位变了，高度要跟着降）
+	_writing = true
+	_world.set_block(pos.x, pos.y, pos.z, FLOWING)
+	_writing = false
+	_wake_neighbors(pos)
+	enqueue(pos)   # 下一轮继续降级，直到消失
+
+
+# 唤醒六邻接中的水方块重新评估（供给关系可能已改变）
+func _wake_neighbors(pos: Vector3i) -> void:
+	for d in NEIGHBORS:
+		var np: Vector3i = pos + d
+		if GlobalConfig.is_water(_world.get_block(np.x, np.y, np.z)):
+			enqueue(np)
 
 
 # 写入一格水并登记水位、入队继续扩散。

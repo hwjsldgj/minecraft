@@ -34,7 +34,9 @@ static func raycast(world: WorldManager, origin: Vector3, direction: Vector3, ma
 
 	# 起始格判定
 	var id0 := world.get_block(cell[0], cell[1], cell[2])
-	if id0 != GlobalConfig.BLOCK_AIR and id0 != -1:
+	# 起始格是水时不命中：眼睛泡在水里（很常见）也要能继续往前打到固体，
+	# 否则会返回 normal=ZERO 的"起始格命中"，导致水中无法放置方块。
+	if id0 != GlobalConfig.BLOCK_AIR and id0 != -1 and not GlobalConfig.is_water(id0):
 		return { "hit": true, "block_pos": Vector3i(cell[0], cell[1], cell[2]), "normal": Vector3i.ZERO, "t": 0.0 }
 
 	for axis in 3:
