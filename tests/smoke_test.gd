@@ -32,6 +32,9 @@ func _test_world() -> void:
 	var world := _world
 	# _ready 会执行：WorldManager 需加入场景树才会触发 _ready
 	add_child(world)
+	# 网格构建已改为分帧入队（每帧≤N）：测试中立即清空队列以同步就绪
+	world.flush_build_queue()
+	_check(world.build_queue.is_empty(), "flush 后构建队列应为空")
 	_check(world.world_data.size() == 16, "WorldManager 应加载 16 个区块 (实际 %d)" % world.world_data.size())
 
 	# 平原(坑外)取样：(gx=10 不在中央坑 |x|<=6 内)
@@ -76,6 +79,12 @@ func _test_textures() -> void:
 	_check(stone_uv != grass_top_uv, "草顶面与石头顶面 UV 应不同")
 	_check(TextureManager.get_shared_material() != null, "get_shared_material() 应非空")
 	_check(TextureManager.get_water_material() != null, "get_water_material() 应非空")
+	# 水体渲染：半透明 alpha + 透明排序
+	_check(TextureManager.get_water_material().transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "水材质应为 TRANSPARENCY_ALPHA")
+	_check(is_equal_approx(TextureManager.get_water_material().albedo_color.a, 0.55), "水材质 alpha 应为 0.55")
+	_check(TextureManager.get_water_material().render_priority == 1, "水材质 render_priority 应为 1")
+	# 调度常量
+	_check(GlobalConfig.RENDER_DISTANCE == 3, "GlobalConfig.RENDER_DISTANCE 应为 3")
 	# 缺失键 → 品红占位图（不应崩溃）
 	var missing := TextureManager.get_texture_by_key("__no_such_key__")
 	_check(missing != null, "缺失键应返回非空占位图")
@@ -101,6 +110,11 @@ func _test_meshes() -> void:
 	_check(interior_entry.get("water") == null, "纯内部区块(0,0,0) 不应有水网格")
 	var moat_entry: Dictionary = _world.render_cache[Vector3i(-2, 0, -2)]
 	_check(moat_entry.get("water") != null, "含水沟区块(-2,0,-2) 应有水网格")
+	# 固体区块应带碰撞体句柄（玩家可落地）
+	_check(interior_entry.get("collision") != null, "区块(0,0,0) 应有碰撞体句柄")
+	# 动态加载/卸载接口存在（框架已搭，暂不自动启用）
+	_check(_world.has_method("unload_chunk"), "WorldManager 应有 unload_chunk")
+	_check(_world.has_method("update_chunk_loading"), "WorldManager 应有 update_chunk_loading")
 	# 非"薄片"体积：内部区块固体网格应覆盖 ~6 层高度(石头0~4+草5)，而非单层薄壳
 	var ab0: AABB = interior_entry.get("solid").mesh.get_aabb()
 	_check(ab0.size.y > 3.0 and ab0.size.y < 7.0, "内部区块固体网格 AABB 高度应≈6层 (实际 %.1f)" % ab0.size.y)

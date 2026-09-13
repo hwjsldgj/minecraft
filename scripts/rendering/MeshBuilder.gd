@@ -180,6 +180,7 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 			entry["collision"] = collider
 	var mesh_water: MeshInstance3D = null
 	if water_mesh != null:
+		# 透明排序由水材质的 render_priority=1 控制（MeshInstance3D 无该属性）
 		mesh_water = _make_instance(water_mesh, origin_v3, TextureManager.get_water_material())
 		world.add_child(mesh_water)
 		entry["water"] = mesh_water

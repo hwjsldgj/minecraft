@@ -229,11 +229,16 @@ func get_shared_material() -> StandardMaterial3D:
 	return _shared_material
 
 
-# 返回共享的水材质：当前为纯色蓝 + 完全不透明（透明水面留待后续阶段）。
+# 返回共享的水材质：半透明蓝色（可透过水体看到环境；水下另有雾效补强）。
+# 不使用自定义着色器，适配老核显。
 func get_water_material() -> StandardMaterial3D:
 	if _water_material == null:
 		_water_material = StandardMaterial3D.new()
-		_water_material.albedo_color = Color(0.2, 0.5, 0.8)
-		_water_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		_water_material.albedo_color = Color(0.2, 0.5, 0.8, 0.55)
+		_water_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_water_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
+		_water_material.render_priority = 1
+		# 双面：水下从内侧也能看到水面，便于观察
+		_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return _water_material

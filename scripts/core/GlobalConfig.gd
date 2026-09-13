@@ -18,6 +18,10 @@ const WORLD_MAX_Z := 31
 const WORLD_MIN_Y := 0
 const WORLD_MAX_Y := 15
 
+# ===== 渲染/加载调度 =====
+# 玩家周围加载区块半径（区块数）；用于 WorldManager.update_chunk_loading。
+const RENDER_DISTANCE := 3
+
 # ===== 方块 ID（仅定义数值；模块内部禁止按具体 ID 做 if 判断）=====
 const BLOCK_AIR := 0
 const BLOCK_STONE := 1
