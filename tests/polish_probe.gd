@@ -119,7 +119,7 @@ func _test_export_groups() -> void:
 	for p in PlayerController.new().get_property_list():
 		if (int(p.get("usage", 0)) & PROPERTY_USAGE_GROUP) != 0:
 			groups[String(p.get("name", ""))] = true
-	for want in ["Land", "Water", "Interaction", "Physics"]:
+	for want in ["Land", "Liquid", "Interaction", "Physics"]:
 		_check(groups.has(want), "T5 应存在导出分组 %s" % want)
 
 

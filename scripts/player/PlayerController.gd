@@ -19,8 +19,8 @@ class_name PlayerController
 @export var land_jump: float = 6.5           # 起跳初速度
 @export var land_gravity: float = -20.0      # 重力加速度
 
-# ===== 液体参数（MC Wiki 手感参考值；与陆地分离，便于扩展其它液体）=====
-@export_group("Water")
+# ===== 液体参数（MC Wiki 数据；与陆地完全分离，为未来其它液体留扩展位）=====
+@export_group("Liquid")
 @export var water_speed: float = 2.20          # 水面/完全浸没水平游速 (MC 2.20)
 @export var water_partial_speed: float = 1.97  # 部分浸入(浅水)水平速度 (MC 1.97)
 @export var water_down: float = 1.81           # 完全水下向下游 (MC 1.81)

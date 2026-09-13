@@ -83,6 +83,9 @@ func _run() -> void:
 	Input.action_press("jump")
 	await _step(5)
 	_check(absf(_player.velocity.y - 0.39) < 0.06, "T4 水下上浮≈0.39 (实测 %.2f)" % _player.velocity.y)
+	# T4b 水中不得沿用陆地跳跃初速度（land_jump 默认 6.5）
+	_check(absf(_player.velocity.y - _player.land_jump) > 1.0,
+		"T4b 水中应禁用陆地跳跃（vy=%.2f, land_jump=%.2f）" % [_player.velocity.y, _player.land_jump])
 	Input.action_release("jump")
 
 	# T5 无输入竖直：趋近自然缓沉 0.80
