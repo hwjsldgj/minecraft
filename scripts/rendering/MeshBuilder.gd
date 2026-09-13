@@ -174,7 +174,7 @@ static func build_chunk(world: WorldManager, chunk: SubChunk) -> void:
 		world.add_child(mesh_solid)
 		entry["solid"] = mesh_solid
 		# 为固体网格生成碰撞体，供玩家/物理落地/跳跃
-		collider = _make_collider(solid_mesh, origin_v3)
+		collider = _make_collider(world, chunk, origin_v3)
 		if collider != null:
 			world.add_child(collider)
 			entry["collision"] = collider
@@ -231,23 +231,45 @@ static func _make_instance(mesh: Mesh, chunk_pos: Vector3i, material: Material) 
 	return mi
 
 
-# 为固体网格创建 StaticBody3D 碰撞（同一 chunk 位移）。水不建碰撞（游泳由参数模拟）。
-static func _make_collider(mesh: Mesh, chunk_pos: Vector3i) -> StaticBody3D:
-	var faces := mesh.get_faces()
-	if faces.is_empty():
-		return null
-	var shape := ConcavePolygonShape3D.new()
-	shape.set_faces(faces)
-	# 凹多边形默认仅单面碰撞，其正面由三角形环绕决定；本网格为渲染正面已反转，
-	# 导致从外侧（含水中）接触时被判定为背面 → 穿模。开启双面碰撞即可对任意方向生效。
-	shape.backface_collision = true
-	var col_shape := CollisionShape3D.new()
-	col_shape.shape = shape
+# 为区块固体方块生成碰撞：每个"暴露"固体方块一个 BoxShape3D(1×1×1)，
+# 合并到同一个 StaticBody3D 下。凸体不存在"内外部"问题，彻底避免穿模。
+# 水/空气不参与碰撞；被完全包住的内部方块不生成（玩家无法到达）。
+static func _make_collider(world: WorldManager, chunk: SubChunk, chunk_pos: Vector3i) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
 	body.collision_layer = 1
 	body.collision_mask = 1
-	body.add_child(col_shape)
+	var size := GlobalConfig.CHUNK_SIZE
+	var cx := chunk_pos.x
+	var cz := chunk_pos.z
+	var added := 0
+	for ly in range(size):
+		for lz in range(size):
+			for lx in range(size):
+				var id: int = chunk.blocks[chunk.get_index(lx, ly, lz)]
+				if id == GlobalConfig.BLOCK_AIR or id == GlobalConfig.BLOCK_WATER:
+					continue
+				var gx := cx * size + lx
+				var gy := chunk_pos.y * size + ly
+				var gz := cz * size + lz
+				var exposed := false
+				for face in range(6):
+					var n: Vector3 = FACE_NORMALS[face]
+					var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
+					if nb == GlobalConfig.BLOCK_AIR or nb == -1 or nb == GlobalConfig.BLOCK_WATER:
+						exposed = true
+						break
+				if not exposed:
+					continue
+				var box := BoxShape3D.new()
+				box.size = Vector3.ONE
+				var cs := CollisionShape3D.new()
+				cs.shape = box
+				cs.position = Vector3(float(lx) + 0.5, float(ly) + 0.5, float(lz) + 0.5)
+				body.add_child(cs)
+				added += 1
+	if added == 0:
+		return null
 	return body
 
 
