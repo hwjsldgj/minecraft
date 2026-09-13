@@ -39,8 +39,8 @@ func _test_water_material() -> void:
 	_check(is_equal_approx(mat.albedo_color.a, 0.55), "T1 透明度应保持 0.55（实测 %.2f）" % mat.albedo_color.a)
 	_check(mat.albedo_color.b > mat.albedo_color.r + 0.20,
 		"T1 albedo 应为蓝色叠加（water_still 是灰度图，颜色靠叠加色给出）")
-	_check(mat.cull_mode == BaseMaterial3D.CULL_BACK,
-		"T1 水材质应只渲染外表面（CULL_BACK），避免看到水体外壳的背面")
+	_check(mat.cull_mode == BaseMaterial3D.CULL_DISABLED,
+		"T1 水材质应双面渲染（CULL_DISABLED），保证从水下也能看到水面顶部")
 
 
 # T2 水网格 UV：来自 get_atlas_uv(BLOCK_WATER, face)，必须是图集子矩形

@@ -365,9 +365,12 @@ func get_liquid_tint(key: String) -> Color:
 #
 # 关于 albedo_color：water_still 是灰度贴图，颜色靠叠加色给出（见 LIQUID_TINTS）。
 #
-# 关于 cull_mode：只用 CULL_BACK（默认正面剔除背面）。水体积是"外壳"，双面渲染会让
-# 从外部看到外壳【背面】，看起来就像水面内部/相邻水块之间多出一层侧面（应被剔除）。
-# 潜水时的水下视野由 WaterEffectController 的雾效负责，无需靠双面渲染。
+# 关于 cull_mode：水面必须【双面可见】。水面顶部是最常见的观察面：
+#   - 从水上（外侧）看到的是它的正面；
+#   - 从水下往上看，看到的是同一个面片的【背面】——若只渲染正面（CULL_BACK），
+#     潜水时抬头将看不到水面贴图（只见天空），这正是"水下看水面顶部贴图异常"的根因。
+# 水面之外的水侧壁本就只在朝向空气时生成（见 MeshBuilder），不存在"水体内壁"多余面，
+# 因此双面渲染不会带来额外穿视。
 func get_water_material() -> StandardMaterial3D:
 	if _water_material == null:
 		_ensure_atlas()
@@ -378,7 +381,7 @@ func get_water_material() -> StandardMaterial3D:
 		_water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_water_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 		_water_material.render_priority = LIQUID_RENDER_PRIORITY
-		_water_material.cull_mode = BaseMaterial3D.CULL_BACK
+		_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		# 近邻过滤：保像素风、防图集相邻格边缘渗色（与固体材质一致）
 		_water_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	return _water_material
