@@ -23,6 +23,13 @@ var build_queue: Array = []
 # 动态加载/卸载距离（区块数；本轮仅搭框架，暂不自动调用）
 const UNLOAD_DISTANCE := 5
 
+# 六邻接方向（用于跨区块边界重建）
+const NEIGHBOR_OFFSETS := [
+	Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+	Vector3i(0, 1, 0), Vector3i(0, -1, 0),
+	Vector3i(0, 0, 1), Vector3i(0, 0, -1),
+]
+
 
 # 按世界坐标查询方块 ID。
 # 若所在区块未加载/不存在，返回 -1（代表"未加载/未知"，供后续邻接遮挡判断）。
@@ -47,6 +54,28 @@ func set_block(gx: int, gy: int, gz: int, id: int) -> void:
 	var lz := _local_coord(gz)
 	chunk.blocks[chunk.get_index(lx, ly, lz)] = id
 	chunk.dirty = true
+	# 数据层职责：写入后立即让所属区块（及受影响的相邻区块）重建网格。
+	# 调用方只管写数据，不必自己算区块索引——曾因调用方误把"方块坐标"
+	# 当作"区块索引"传入重建接口，导致数据已变而画面不变。
+	_enqueue_rebuild(chunk.position)
+	# 跨区块边界：相邻区块网格中朝向本方块的面也需重新剔除。
+	for d in NEIGHBOR_OFFSETS:
+		var nb := _chunk_at(gx + d.x, gy + d.y, gz + d.z)
+		if nb != null and nb.position != chunk.position:
+			_enqueue_rebuild(nb.position)
+
+
+# 将区块加入重建队列（去重；仅在区块已加载时）。
+func _enqueue_rebuild(v3: Vector3i) -> void:
+	if world_data.has(v3) and not build_queue.has(v3):
+		build_queue.append(v3)
+
+
+# 该区块是否需要构建：尚未构建过，或数据已变更（dirty）。
+func _needs_build(v3: Vector3i) -> bool:
+	if not render_cache.has(v3):
+		return true
+	return world_data[v3].dirty
 
 
 # 加载（若缺失）并返回指定区块索引的子区块。
@@ -80,7 +109,7 @@ func _process(_delta: float) -> void:
 	var built := 0
 	while build_queue.size() > 0 and built < max_builds_per_frame:
 		var v3 = build_queue.pop_front()
-		if world_data.has(v3) and not render_cache.has(v3):
+		if world_data.has(v3) and _needs_build(v3):
 			MeshBuilder.build_chunk(self, world_data[v3])
 			built += 1
 
@@ -89,7 +118,7 @@ func _process(_delta: float) -> void:
 func flush_build_queue() -> void:
 	while build_queue.size() > 0:
 		var v3 = build_queue.pop_front()
-		if world_data.has(v3) and not render_cache.has(v3):
+		if world_data.has(v3) and _needs_build(v3):
 			MeshBuilder.build_chunk(self, world_data[v3])
 
 

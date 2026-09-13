@@ -97,8 +97,10 @@ func try_break() -> bool:
 	if not r.get("hit", false):
 		return false
 	var p: Vector3i = r["block_pos"]
+	# 只写数据：网格失效与重建由 WorldManager.set_block 统一负责
+	# （曾在此误传"方块坐标"给 rebuild_chunk（它要的是"区块索引"），
+	#   查表失败静默返回，导致数据已变而画面不变——F5 点击"无反应"的根因。）
 	_world.set_block(p.x, p.y, p.z, GlobalConfig.BLOCK_AIR)
-	_world.rebuild_chunk(p)
 	return true
 
 
@@ -141,7 +143,6 @@ func try_place() -> bool:
 	if not can_place_at(target):
 		return false
 	_world.set_block(target.x, target.y, target.z, current_block_id)
-	_world.rebuild_chunk(target)
 	return true
 
 

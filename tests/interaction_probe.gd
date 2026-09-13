@@ -53,6 +53,19 @@ func _look(eye: Vector3, dir: Vector3) -> void:
 	_cam.look_at(eye + dn, up)
 
 
+# 该区块固体网格的顶点数（未构建返回 -1）：用于断言"数据改变后网格确实重建了"
+func _solid_verts(cb: Vector3i) -> int:
+	if not _world.render_cache.has(cb):
+		return -1
+	var mi: MeshInstance3D = _world.render_cache[cb].get("solid")
+	if mi == null or mi.mesh == null:
+		return -1
+	var am: ArrayMesh = mi.mesh
+	if am.get_surface_count() == 0:
+		return 0
+	return am.surface_get_array_len(0)
+
+
 func _run() -> void:
 	# T1a 朝下命中：(10.5,7.5,10.5) 向下 → 命中草方块 (10,5,10)，法线 (0,1,0)
 	_place(Vector3(10.0, 6.0, 10.0))
@@ -73,6 +86,18 @@ func _run() -> void:
 	var broke: bool = _player.try_break()
 	_check(broke, "T2 try_break 应返回 true")
 	_check(_world.get_block(8, 5, 10) == GlobalConfig.BLOCK_AIR, "T2 破坏后 (8,5,10) 应为空气")
+
+	# T2b 网格必须随数据刷新（回归：F5 中"点击无反应"就是数据变了而网格没重建）
+	# 破坏点 (8,5,10) 属区块 (0,0,0)；重建走分帧队列，测试里显式清空队列。
+	var cb := Vector3i(0, 0, 0)
+	var verts_before := _solid_verts(cb)
+	_world.set_block(9, 5, 10, GlobalConfig.BLOCK_AIR)
+	_world.flush_build_queue()
+	var verts_after := _solid_verts(cb)
+	_check(verts_before > 0 and verts_after != verts_before,
+		"T2b 改方块后区块网格应重建（顶点 %d → %d）" % [verts_before, verts_after])
+	_world.set_block(9, 5, 10, GlobalConfig.BLOCK_GRASS)
+	_world.flush_build_queue()
 
 	# T3 放置被拒（与玩家 AABB 重叠）：站在 (10,6,10) 朝下，target=(10,6,10) 为脚下
 	_place(Vector3(10.0, 6.0, 10.0))
