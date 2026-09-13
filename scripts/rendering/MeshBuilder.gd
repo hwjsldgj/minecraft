@@ -243,12 +243,23 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 static func _store_pack(cache: Dictionary, world: WorldManager, chunk: SubChunk, lx: int, ly: int, lz: int) -> void:
 	var idx := chunk.get_index(lx, ly, lz)
 	var id: int = chunk.blocks[idx]
-	var packs: Dictionary = cache["wpacks"] if id == GlobalConfig.BLOCK_WATER else cache["packs"]
 	var pack: Variant = _make_pack(world, chunk, lx, ly, lz, id)
-	if pack == null:
-		packs.erase(idx)
+	# 必须【双向清理】：方块类型发生变化时（石→水、水→空气…），旧类型字典里的过期
+	# 顶点包若不删除，会残留在网格里形成"幽灵面"——表现为相邻水块之间多出侧面。
+	var solid_packs: Dictionary = cache["packs"]
+	var water_packs: Dictionary = cache["wpacks"]
+	if id == GlobalConfig.BLOCK_WATER:
+		solid_packs.erase(idx)
+		if pack == null:
+			water_packs.erase(idx)
+		else:
+			water_packs[idx] = pack
 	else:
-		packs[idx] = pack
+		water_packs.erase(idx)
+		if pack == null:
+			solid_packs.erase(idx)
+		else:
+			solid_packs[idx] = pack
 
 
 # 缓存中某方块顶点包的顶点数（无包为 0）。

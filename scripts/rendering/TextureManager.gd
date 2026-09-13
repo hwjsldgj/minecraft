@@ -334,24 +334,40 @@ func get_shared_material() -> StandardMaterial3D:
 
 
 # 液体材质参数（集中配置，便于未来扩展其它液体：岩浆/蜂蜜等）
-# LIQUID_ALBEDO 现为"白色 + 透明度"：白色即不染色，直接显示 water_still 贴图本身；
-# 透明度沿用原来的 0.55。
-const LIQUID_ALBEDO := Color(1, 1, 1, 0.55)
 const LIQUID_RENDER_PRIORITY := 1
 
+# 液体贴图【叠加色】表：源贴图多为灰度图（water_still 实测 64/64 像素三通道相等），
+# 必须靠 albedo_color 叠加液体本色才能呈现正确颜色，否则水面是灰色。
+# 未来新增液体（岩浆等）只需在此登记一行，或直接设置对应的 @export 参数。
+const LIQUID_TINTS := {
+	"water_still": Color(0.247, 0.463, 0.894),   # MC 水色 #3F76E4
+	"lava_still": Color(1.00, 0.62, 0.18),       # 预留：岩浆
+}
+
 # 水面参数（可 @export 调整；不改变透明模式与深度策略）
-@export var water_texture_key := "water_still"   # 水面 albedo 所用贴图键
-@export var water_alpha := 0.55                  # 水面不透明度（沿用原值）
-@export var water_tint := Color(1, 1, 1)         # 染色；白色=原样显示贴图
+@export var water_texture_key := "water_still"          # 水面 albedo 所用贴图键
+@export var water_alpha := 0.55                         # 水面不透明度（沿用原值）
+@export var water_tint := Color(0.247, 0.463, 0.894)    # 叠加色：默认 MC 水色
 
 
-# 返回共享的水材质：带 water_still 贴图的半透明水面（可透过水体看到环境；水下另有雾效补强）。
-# 双面渲染：置身影内/水中均可见水面。StandardMaterial3D + 无自定义着色器，适配老核显。
+# 查询某液体贴图的默认叠加色（未登记则返回白色=不染色）
+func get_liquid_tint(key: String) -> Color:
+	return LIQUID_TINTS.get(key, Color(1, 1, 1))
+
+
+# 返回共享的水材质：water_still 贴图 + MC 水色叠加 + 半透明（水下另有雾效补强）。
+# StandardMaterial3D + 无自定义着色器，适配老核显；不做 UV 滚动、不做顶点波动。
 #
 # 关于 albedo_texture：水网格的 UV 来自 MeshBuilder 里的 get_atlas_uv(BLOCK_WATER, face)，
 # 是【图集内】的归一化子矩形（water_still 单元）。因此 albedo 必须绑定【图集】：单独绑定
 # 16×16 的 water_still 会让归一化 UV 采到错误位置。图集里该单元就是 water_still.png 的
-# 逐像素拷贝（见 _ensure_atlas），所以水面显示的就是 water_still 贴图本身。
+# 逐像素拷贝，所以水面显示的就是 water_still 贴图本身。
+#
+# 关于 albedo_color：water_still 是灰度贴图，颜色靠叠加色给出（见 LIQUID_TINTS）。
+#
+# 关于 cull_mode：只用 CULL_BACK（默认正面剔除背面）。水体积是"外壳"，双面渲染会让
+# 从外部看到外壳【背面】，看起来就像水面内部/相邻水块之间多出一层侧面（应被剔除）。
+# 潜水时的水下视野由 WaterEffectController 的雾效负责，无需靠双面渲染。
 func get_water_material() -> StandardMaterial3D:
 	if _water_material == null:
 		_ensure_atlas()
@@ -362,7 +378,7 @@ func get_water_material() -> StandardMaterial3D:
 		_water_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_water_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 		_water_material.render_priority = LIQUID_RENDER_PRIORITY
-		_water_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_water_material.cull_mode = BaseMaterial3D.CULL_BACK
 		# 近邻过滤：保像素风、防图集相邻格边缘渗色（与固体材质一致）
 		_water_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	return _water_material
