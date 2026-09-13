@@ -41,6 +41,8 @@ const LIQUID_TICK_RATE := 20.0
 
 # ===== 交互（子任务 4.1/4.2：DDA 破坏/放置 + 物品栏）=====
 @export var interact_reach: float = 4.0
+# 是否要求鼠标处于捕获状态才响应交互（无头测试可关闭以驱动输入链路）
+@export var require_mouse_capture: bool = true
 # 物品栏（9 格，数字键 1~9 切换；空槽 = -1）
 var inventory: Inventory = Inventory.new()
 # 当前待放置方块 ID：来自物品栏当前槽（只读，UI 与放置共用）
@@ -152,7 +154,7 @@ func handle_hotbar_key(keycode: int) -> bool:
 
 # 鼠标左键破坏 / 右键放置；数字键切换物品栏（仅在鼠标被捕获时响应）
 func _unhandled_input(event: InputEvent) -> void:
-	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+	if require_mouse_capture and Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton

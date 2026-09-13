@@ -10,10 +10,17 @@ const ZOOM_PX := 8.0
 const CROSS_LEN := 8.0
 const CROSS_THICK := 1.0  # 半宽 → 2px 实线
 
+# 未来可点击 UI（物品栏拖拽等）扩展位：
+# false = 纯 HUD（所有控件忽略鼠标，绝不拦截视角/破坏放置输入）；
+# true  = 槽位改为可接收鼠标（STOP），届时需自行处理"捕获模式下点击"的取舍。
+const SLOTS_INTERACTIVE := false
+
 var selected_index: int = 0
 var slot_texture_rects: Array[TextureRect] = []
 var slot_highlights: Array[ColorRect] = []
 var crosshair_nodes: Array[ColorRect] = []
+# 预留：未来可点击 UI 的根容器（全屏，当前忽略鼠标）
+var ui_root: Control = null
 
 var _inventory: Inventory = null
 var _count := 9
@@ -23,9 +30,20 @@ var _bar: Control = null
 func _ready() -> void:
 	_inventory = _find_inventory()
 	_count = Inventory.SLOT_COUNT
+	# 可点击 UI 的预留根容器（当前忽略鼠标，不拦截任何输入）
+	ui_root = Control.new()
+	ui_root.name = "UIRoot"
+	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(ui_root)
 	_build_crosshair()
 	_build_bar()
 	refresh()
+
+
+# 槽位控件的鼠标过滤：纯 HUD 忽略鼠标；开启 SLOTS_INTERACTIVE 后改为可接收
+func _slot_mouse_filter() -> int:
+	return Control.MOUSE_FILTER_STOP if SLOTS_INTERACTIVE else Control.MOUSE_FILTER_IGNORE
 
 
 # 只读获取物品栏（来自 Player）；找不到则为 null（UI 仍安全显示空槽）
@@ -84,7 +102,7 @@ func _build_bar() -> void:
 		var x := float(i) * (SLOT_SIZE + SLOT_GAP)
 		var hi := ColorRect.new()
 		hi.color = Color.WHITE
-		hi.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hi.mouse_filter = _slot_mouse_filter()
 		hi.position = Vector2(x - 2.0, -2.0)
 		hi.size = Vector2(SLOT_SIZE + 4.0, SLOT_SIZE + 4.0)
 		hi.visible = false
@@ -93,13 +111,13 @@ func _build_bar() -> void:
 
 		var bg := ColorRect.new()
 		bg.color = Color(0.10, 0.10, 0.10, 0.85)
-		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bg.mouse_filter = _slot_mouse_filter()
 		bg.position = Vector2(x, 0.0)
 		bg.size = Vector2(SLOT_SIZE, SLOT_SIZE)
 		_bar.add_child(bg)
 
 		var tr := TextureRect.new()
-		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tr.mouse_filter = _slot_mouse_filter()
 		tr.position = Vector2(x + ZOOM_PX * 0.5, ZOOM_PX * 0.5)
 		tr.size = Vector2(SLOT_SIZE - ZOOM_PX, SLOT_SIZE - ZOOM_PX)
 		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
