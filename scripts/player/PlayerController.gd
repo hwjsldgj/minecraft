@@ -33,6 +33,9 @@ var in_water := false
 
 
 func _ready() -> void:
+	# 与地形 StaticBody3D 同层，确保陆地与水中均正常碰撞（不穿模）
+	collision_layer = 1
+	collision_mask = 1
 	if DisplayServer.get_name() != "headless":
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 

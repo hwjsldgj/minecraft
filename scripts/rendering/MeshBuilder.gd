@@ -238,10 +238,15 @@ static func _make_collider(mesh: Mesh, chunk_pos: Vector3i) -> StaticBody3D:
 		return null
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)
+	# 凹多边形默认仅单面碰撞，其正面由三角形环绕决定；本网格为渲染正面已反转，
+	# 导致从外侧（含水中）接触时被判定为背面 → 穿模。开启双面碰撞即可对任意方向生效。
+	shape.backface_collision = true
 	var col_shape := CollisionShape3D.new()
 	col_shape.shape = shape
 	var body := StaticBody3D.new()
 	body.position = Vector3(chunk_pos) * float(GlobalConfig.CHUNK_SIZE)
+	body.collision_layer = 1
+	body.collision_mask = 1
 	body.add_child(col_shape)
 	return body
 
