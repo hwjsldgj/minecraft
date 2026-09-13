@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/interaction_probe.gd" id="1_inter"]
+
+[node name="InteractionProbe" type="Node"]
+script = ExtResource("1_inter")

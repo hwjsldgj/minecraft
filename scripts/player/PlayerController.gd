@@ -35,8 +35,16 @@ const LIQUID_TICK_RATE := 20.0
 
 # 身体中心相对原点偏移（脚底在原点，身高约 1.8 → 中心在 +0.9）
 @export var body_center_offset: float = 0.9
+@export var body_height: float = 1.8
 # 世界边界留边（胶囊半径）
 @export var world_half_width: float = 0.4
+
+# ===== 交互（子任务 4.1：DDA 破坏/放置）=====
+@export var interact_reach: float = 4.0
+# 当前待放置方块 ID（为未来 UI 物品栏预留；本轮为常量）
+var current_block_id: int = GlobalConfig.BLOCK_STONE
+
+var _camera: Camera3D = null
 
 # 当前是否处于水中（供其它表现模块读取；判定基于体素）
 var in_water := false
@@ -58,6 +66,90 @@ func is_water_at(world_pos: Vector3) -> bool:
 		return false
 	var id := _world.get_block(int(floor(world_pos.x)), int(floor(world_pos.y)), int(floor(world_pos.z)))
 	return id == GlobalConfig.BLOCK_WATER
+
+
+# 惰性获取相机（相机子节点可能晚于本节点进入场景树）
+func _camera_node() -> Camera3D:
+	if _camera == null or not is_instance_valid(_camera):
+		_camera = get_node_or_null("Camera3D") as Camera3D
+	return _camera
+
+
+# 从摄像机中心沿视线方向做 DDA 射线，返回命中信息（未命中 hit=false）
+func aim() -> Dictionary:
+	var cam := _camera_node()
+	if cam == null or _world == null:
+		return { "hit": false, "block_pos": Vector3i.ZERO, "normal": Vector3i.ZERO, "t": 0.0 }
+	var origin := cam.global_position
+	var direction := -cam.global_transform.basis.z
+	return DDA.raycast(_world, origin, direction, interact_reach)
+
+
+# 左键：破坏命中的方块（只走 WorldManager API，不直接操作网格节点）
+func try_break() -> bool:
+	var r := aim()
+	if not r.get("hit", false):
+		return false
+	var p: Vector3i = r["block_pos"]
+	_world.set_block(p.x, p.y, p.z, GlobalConfig.BLOCK_AIR)
+	_world.rebuild_chunk(p)
+	return true
+
+
+# 放置合法性：边界内 + 目标为空 + 不与玩家 AABB 重叠
+func can_place_at(target: Vector3i) -> bool:
+	if _world == null:
+		return false
+	if target.x < GlobalConfig.WORLD_MIN_X or target.x > GlobalConfig.WORLD_MAX_X:
+		return false
+	if target.z < GlobalConfig.WORLD_MIN_Z or target.z > GlobalConfig.WORLD_MAX_Z:
+		return false
+	if target.y < GlobalConfig.WORLD_MIN_Y or target.y > GlobalConfig.WORLD_MAX_Y:
+		return false
+	if _world.get_block(target.x, target.y, target.z) != GlobalConfig.BLOCK_AIR:
+		return false  # 已占用（含未加载 -1）
+	# 玩家 AABB 与目标方块 AABB 相交检测
+	var r := world_half_width
+	var pmin := global_position - Vector3(r, 0.0, r)
+	var pmax := global_position + Vector3(r, body_height, r)
+	var bmin := Vector3(target)
+	var bmax := bmin + Vector3.ONE
+	var overlap := pmin.x < bmax.x and pmax.x > bmin.x \
+		and pmin.y < bmax.y and pmax.y > bmin.y \
+		and pmin.z < bmax.z and pmax.z > bmin.z
+	return not overlap
+
+
+# 右键：在命中面法线方向放置 current_block_id
+func try_place() -> bool:
+	var r := aim()
+	if not r.get("hit", false):
+		return false
+	var n: Vector3i = r["normal"]
+	if n == Vector3i.ZERO:
+		return false  # 视线起点已在方块内，方向不明确
+	var hit_pos: Vector3i = r["block_pos"]
+	var target := hit_pos + n
+	if not can_place_at(target):
+		return false
+	_world.set_block(target.x, target.y, target.z, current_block_id)
+	_world.rebuild_chunk(target)
+	return true
+
+
+# 鼠标左键破坏 / 右键放置（仅在鼠标被捕获时响应，避免 ESC 释放后误触）
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if not mb.pressed:
+		return
+	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		return
+	if mb.button_index == MOUSE_BUTTON_LEFT:
+		try_break()
+	elif mb.button_index == MOUSE_BUTTON_RIGHT:
+		try_place()
 
 
 func _physics_process(delta: float) -> void:
