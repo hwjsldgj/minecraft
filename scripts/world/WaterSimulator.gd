@@ -35,6 +35,11 @@ const NEIGHBORS := [
 # 扩散节奏：每 5 游戏刻 = 0.25s 推进一格（即 4 方块/秒）
 @export var step_interval: float = 0.25
 
+# ===== 水位分级渲染参数（MC 风格，@export 便于调参）=====
+@export var height_source: float = 0.875  # 露天/孤立水源的表面高度
+@export var height_full: float = 1.0      # 被水包围的水源（上方也是水）高度
+@export var height_min: float = 0.125     # 水位 7 的薄层高度
+
 # 待处理队列（BFS）与其去重表
 var _queue: Array[Vector3i] = []
 var _pending: Dictionary = {}
@@ -65,6 +70,24 @@ func get_level(pos: Vector3i) -> int:
 
 func is_source(pos: Vector3i) -> bool:
 	return _world != null and _world.get_block(pos.x, pos.y, pos.z) == SOURCE
+
+
+# 某水方块的表面高度（0~1，相对方块底面）——水位分级渲染的唯一数据来源：
+#   - 水源：上方也是水 → height_full(1.0)；露天的孤立水面 → height_source(0.875)
+#   - 流动水：按水位从 height_source 线性递减到 height_min（水位 7 = 0.125）
+# 非水方块返回 1.0（满格）。
+func surface_height(pos: Vector3i) -> float:
+	if _world == null:
+		return 1.0
+	var id := _world.get_block(pos.x, pos.y, pos.z)
+	if not GlobalConfig.is_water(id):
+		return 1.0
+	var level := get_level(pos)
+	if level <= 0:
+		var above := _world.get_block(pos.x, pos.y + 1, pos.z)
+		return height_full if GlobalConfig.is_water(above) else height_source
+	var t := float(level) / float(MAX_LEVEL)
+	return lerpf(height_source, height_min, t)
 
 
 # ===== 队列 =====

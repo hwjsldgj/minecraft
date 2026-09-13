@@ -193,7 +193,10 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 	var gz := origin.z * size + lz
 	var block_origin := Vector3(lx, ly, lz)
 	var is_water_block := GlobalConfig.is_water(id)
-
+	# 水位分级渲染：水的顶面与侧面按水位高度裁剪（0.125~1.0），底面保持满格
+	var water_h := 1.0
+	if is_water_block:
+		water_h = _water_height(world, Vector3i(gx, gy, gz))
 	# 局部 Packed 数组在追加期间引用计数为 1 → 原地追加，无写时复制开销
 	var pos := PackedVector3Array()
 	var nrm := PackedVector3Array()
@@ -220,10 +223,10 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 		var rect := TextureManager.get_atlas_uv(id, face)
 		var quads: Array = FACE_QUADS[face]
 		var brightness: Color = FACE_BRIGHTNESS[face]
-		var c0 := block_origin + (quads[0][0] as Vector3)
-		var c1 := block_origin + (quads[1][0] as Vector3)
-		var c2 := block_origin + (quads[2][0] as Vector3)
-		var c3 := block_origin + (quads[3][0] as Vector3)
+		var c0 := block_origin + _clip_corner(quads[0][0] as Vector3, water_h)
+		var c1 := block_origin + _clip_corner(quads[1][0] as Vector3, water_h)
+		var c2 := block_origin + _clip_corner(quads[2][0] as Vector3, water_h)
+		var c3 := block_origin + _clip_corner(quads[3][0] as Vector3, water_h)
 		var u0 := rect.position + (quads[0][1] as Vector2) * rect.size
 		var u1 := rect.position + (quads[1][1] as Vector2) * rect.size
 		var u2 := rect.position + (quads[2][1] as Vector2) * rect.size
@@ -239,6 +242,21 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 	if pos.is_empty():
 		return null
 	return { "pos": pos, "nrm": nrm, "col": col, "uv": uv }
+
+
+# 水位分级渲染：向 WaterSimulator 取该水方块的表面高度（无模拟器则按满格）。
+static func _water_height(world: WorldManager, pos: Vector3i) -> float:
+	if world.water_sim == null:
+		return 1.0
+	return world.water_sim.surface_height(pos)
+
+
+# 把面角点的本地高度 1 缩放到水位高度 h（0 保持 0）：
+# 底面的角点全为 0 → 不变；侧面顶边与顶面角点由 1 变为 h。
+static func _clip_corner(v: Vector3, h: float) -> Vector3:
+	if v.y <= 0.5:
+		return v
+	return Vector3(v.x, h, v.z)
 
 
 # 重新生成单个方块的顶点包并写入缓存（无面则从缓存移除）。
