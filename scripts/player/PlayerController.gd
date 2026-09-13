@@ -39,10 +39,14 @@ const LIQUID_TICK_RATE := 20.0
 # 世界边界留边（胶囊半径）
 @export var world_half_width: float = 0.4
 
-# ===== 交互（子任务 4.1：DDA 破坏/放置）=====
+# ===== 交互（子任务 4.1/4.2：DDA 破坏/放置 + 物品栏）=====
 @export var interact_reach: float = 4.0
-# 当前待放置方块 ID（为未来 UI 物品栏预留；本轮为常量）
-var current_block_id: int = GlobalConfig.BLOCK_STONE
+# 物品栏（9 格，数字键 1~9 切换；空槽 = -1）
+var inventory: Inventory = Inventory.new()
+# 当前待放置方块 ID：来自物品栏当前槽（只读，UI 与放置共用）
+var current_block_id: int:
+	get:
+		return inventory.get_current()
 
 var _camera: Camera3D = null
 
@@ -122,6 +126,8 @@ func can_place_at(target: Vector3i) -> bool:
 
 # 右键：在命中面法线方向放置 current_block_id
 func try_place() -> bool:
+	if current_block_id < 0:
+		return false  # 空槽位：拒绝放置
 	var r := aim()
 	if not r.get("hit", false):
 		return false
@@ -137,19 +143,29 @@ func try_place() -> bool:
 	return true
 
 
-# 鼠标左键破坏 / 右键放置（仅在鼠标被捕获时响应，避免 ESC 释放后误触）
+# 数字键 1~9 → 选中槽位 0~8（返回是否处理）
+func handle_hotbar_key(keycode: int) -> bool:
+	if keycode < KEY_1 or keycode > KEY_9:
+		return false
+	return inventory.select_slot(keycode - KEY_1)
+
+
+# 鼠标左键破坏 / 右键放置；数字键切换物品栏（仅在鼠标被捕获时响应）
 func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton):
-		return
-	var mb := event as InputEventMouseButton
-	if not mb.pressed:
-		return
 	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return
-	if mb.button_index == MOUSE_BUTTON_LEFT:
-		try_break()
-	elif mb.button_index == MOUSE_BUTTON_RIGHT:
-		try_place()
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if not mb.pressed:
+			return
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			try_break()
+		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			try_place()
+	elif event is InputEventKey:
+		var k := event as InputEventKey
+		if k.pressed and not k.echo:
+			handle_hotbar_key(k.keycode)
 
 
 func _physics_process(delta: float) -> void:
