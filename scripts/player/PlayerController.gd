@@ -64,6 +64,17 @@ func _ready() -> void:
 	collision_mask = 1
 	if DisplayServer.get_name() != "headless":
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	# 世界渲染（网格+碰撞体）就绪前冻结物理：否则出生于空中时会先下坠，
+	# 而出生点所在区块的碰撞体尚未生成 → 穿过地面卡在方块内部。
+	if _world != null and not _world.is_physics_ready():
+		velocity = Vector3.ZERO
+		set_physics_process(false)
+		_world.world_ready.connect(_on_world_ready)
+
+
+# 世界就绪回调：恢复物理模拟
+func _on_world_ready() -> void:
+	set_physics_process(true)
 
 
 # 世界坐标处是否为水方块（体素检测；无世界引用时视为非水）

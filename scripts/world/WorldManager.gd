@@ -25,6 +25,18 @@ var build_queue: Array = []
 # 每帧最多构建的区块数
 @export var max_builds_per_frame: int = 2
 
+# ===== 启动时序：数据先行 → 渲染后置 → 物理最后 =====
+# 阶段1：所有初始区块的方块数据同步生成完毕（data_ready）
+# 阶段2：数据就绪后才统一对网格+碰撞体入队，由 _process 分帧构建
+# 阶段3：构建队列排空（render_ready）时发出 world_ready，玩家此前禁止物理模拟
+var data_ready := false
+var render_ready := false
+signal world_ready
+
+# 初始加载的区块范围（x,z ∈ MIN..MAX，y = 0）
+const INITIAL_CHUNK_MIN := -2
+const INITIAL_CHUNK_MAX := 1
+
 # 动态加载/卸载距离（区块数；本轮仅搭框架，暂不自动调用）
 const UNLOAD_DISTANCE := 5
 
@@ -99,18 +111,24 @@ func _needs_build(v3: Vector3i) -> bool:
 	return world_data[v3].dirty
 
 
-# 加载（若缺失）并返回指定区块索引的子区块。
-# 新建的区块交由 ChunkGenerator.generate() 填充地形；网格构建改为【入队分帧】执行。
-# 生成逻辑(ChunkGenerator)与网格逻辑(MeshBuilder)解耦：替换任一无需改动另一。
-func load_chunk(v3: Vector3i) -> SubChunk:
+# 只生成区块【数据】（blocks 数组），不触发任何渲染构建 —— "数据先行"的核心入口。
+# 为将来噪声地形 / 无限世界预留：数据可在任意时刻先行生成，渲染随后按需构建。
+func generate_chunk_data(v3: Vector3i) -> SubChunk:
 	if world_data.has(v3):
 		return world_data[v3]
 	var chunk := SubChunk.new()
 	chunk.position = v3
 	ChunkGenerator.generate(self, chunk)
 	world_data[v3] = chunk
-	# 第二阶段：网格构建入队，由 _process 分帧执行（每帧最多 max_builds_per_frame）
-	if not build_queue.has(v3):
+	return chunk
+
+
+# 加载区块 = 先生成数据，再入队渲染构建（对外保持"加载即会用"的语义）。
+# 生成逻辑(ChunkGenerator)与网格逻辑(MeshBuilder)解耦：替换任一无需改动另一。
+func load_chunk(v3: Vector3i) -> SubChunk:
+	var existed := world_data.has(v3)
+	var chunk := generate_chunk_data(v3)
+	if not existed and not build_queue.has(v3):
 		build_queue.append(v3)
 	return chunk
 
@@ -133,6 +151,7 @@ func _process(_delta: float) -> void:
 		if world_data.has(v3) and _needs_build(v3):
 			MeshBuilder.build_chunk(self, world_data[v3])
 			built += 1
+	_check_render_ready()
 
 
 # 立即清空构建队列（供测试/需要同步就绪时调用）。
@@ -141,6 +160,20 @@ func flush_build_queue() -> void:
 		var v3 = build_queue.pop_front()
 		if world_data.has(v3) and _needs_build(v3):
 			MeshBuilder.build_chunk(self, world_data[v3])
+	_check_render_ready()
+
+
+# 初始构建队列排空 → 渲染就绪。物理必须等这一刻才能开始（见 PlayerController）。
+func _check_render_ready() -> void:
+	if render_ready or not data_ready or not build_queue.is_empty():
+		return
+	render_ready = true
+	world_ready.emit()
+
+
+# 物理模拟是否可以开始：数据与初始渲染都已就绪。
+func is_physics_ready() -> bool:
+	return data_ready and render_ready
 
 
 # 卸载区块：释放其渲染句柄与数据（供动态加载/卸载使用）。
@@ -199,9 +232,33 @@ func _local_coord(v: int) -> int:
 	return ((v % GlobalConfig.CHUNK_SIZE) + GlobalConfig.CHUNK_SIZE) % GlobalConfig.CHUNK_SIZE
 
 
-# 测试初始化：加载覆盖世界边界所需范围的 16 个区块（x,z ∈ -2..1，y = 0）。
+# 启动流程（数据先行 · 渲染后置 · 物理最后）：
+#   阶段1  同步生成全部初始区块的【数据】（不触发任何渲染）；此时 get_block 全可用。
+#   阶段2  数据全部就绪后，才把渲染构建统一入队，由 _process 分帧构建网格与碰撞体。
+#   阶段3  队列排空时发出 world_ready，玩家控制器在此之前冻结物理，
+#          避免出生点碰撞体尚未生成就下坠穿地（曾表现为"掉入方块内部"）。
 func _ready() -> void:
-	for cx in range(-2, 2):
-		for cz in range(-2, 2):
-			load_chunk(Vector3i(cx, 0, cz))
-			print("[WorldManager] 加载区块： (%d, %d, %d)" % [cx, 0, cz])
+	_prepare_initial_data()
+	var initial := _initial_chunk_list()
+	for v3 in initial:
+		_enqueue_rebuild(v3)
+
+
+# 阶段1：数据先行
+func _prepare_initial_data() -> void:
+	var count := 0
+	for cx in range(INITIAL_CHUNK_MIN, INITIAL_CHUNK_MAX + 1):
+		for cz in range(INITIAL_CHUNK_MIN, INITIAL_CHUNK_MAX + 1):
+			generate_chunk_data(Vector3i(cx, 0, cz))
+			count += 1
+	data_ready = true
+	print("[WorldManager] 数据生成完成：%d 个区块（渲染待入队）" % count)
+
+
+# 初始区块列表（与 _prepare_initial_data 的范围一致）
+func _initial_chunk_list() -> Array[Vector3i]:
+	var out: Array[Vector3i] = []
+	for cx in range(INITIAL_CHUNK_MIN, INITIAL_CHUNK_MAX + 1):
+		for cz in range(INITIAL_CHUNK_MIN, INITIAL_CHUNK_MAX + 1):
+			out.append(Vector3i(cx, 0, cz))
+	return out
