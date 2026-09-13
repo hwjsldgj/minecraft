@@ -41,6 +41,8 @@ const BLOCK_TEXTURE_KEYS := {
 	],
 	# 水：静止水面六面同图
 	GlobalConfig.BLOCK_WATER: ["water_still", "water_still", "water_still", "water_still", "water_still", "water_still"],
+	# 流动水：第一阶段沿用同一张贴图（未来按水位分级换图/换 UV）
+	GlobalConfig.BLOCK_FLOWING_WATER: ["water_still", "water_still", "water_still", "water_still", "water_still", "water_still"],
 }
 
 # 纹理缓存：键 = 纹理键名，值 = Texture2D

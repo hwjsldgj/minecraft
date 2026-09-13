@@ -19,6 +19,10 @@ var render_cache: Dictionary = {}
 # 完整构建（build_chunk）时全量建立，之后由 patch_block 局部刷新。
 var mesh_cache: Dictionary = {}
 
+# 水流模拟器（流动水第一阶段）。由本节点在 _ready 里创建并挂在身上；
+# set_block 写入方块后调用它唤醒水流（水源扩散）。为 null 时水流不生效。
+var water_sim: WaterSimulator = null
+
 # ===== 分帧构建调度（避免跨区块瞬间卡帧）=====
 # 待构建区块队列（存区块索引 Vector3i）
 var build_queue: Array = []
@@ -89,6 +93,9 @@ func set_block(gx: int, gy: int, gz: int, id: int) -> void:
 		_patch_around(gx, gy, gz)
 	else:
 		_enqueue_rebuild(chunk.position)
+	# 水流模拟：放置/清除方块后唤醒水流（水源会向四周扩散；见 WaterSimulator）
+	if water_sim != null:
+		water_sim.on_block_changed(Vector3i(gx, gy, gz), id)
 
 
 # 局部重建受改动影响的面：本区块以被改方块为中心重算，边界处再补相邻区块。
@@ -326,6 +333,11 @@ func _ready() -> void:
 	var initial := _initial_chunk_list()
 	for v3 in initial:
 		_enqueue_rebuild(v3)
+	# 水流模拟器：数据就绪后创建（它需要 get_block 可用）。地形生成不走 set_block，
+	# 因此初始水沟不会被触发模拟，只有玩家放置水源才会开始流动。
+	water_sim = WaterSimulator.new()
+	water_sim.name = "WaterSimulator"
+	add_child(water_sim)
 
 
 # 阶段1：数据先行

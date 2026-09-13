@@ -83,7 +83,7 @@ func is_water_at(world_pos: Vector3) -> bool:
 	if _world == null:
 		return false
 	var id := _world.get_block(int(floor(world_pos.x)), int(floor(world_pos.y)), int(floor(world_pos.z)))
-	return id == GlobalConfig.BLOCK_WATER
+	return GlobalConfig.is_water(id)
 
 
 # 惰性获取相机（相机子节点可能晚于本节点进入场景树）

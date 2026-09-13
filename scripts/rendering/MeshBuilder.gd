@@ -192,7 +192,7 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 	var gy := origin.y * size + ly
 	var gz := origin.z * size + lz
 	var block_origin := Vector3(lx, ly, lz)
-	var is_water_block := id == GlobalConfig.BLOCK_WATER
+	var is_water_block := GlobalConfig.is_water(id)
 
 	# 局部 Packed 数组在追加期间引用计数为 1 → 原地追加，无写时复制开销
 	var pos := PackedVector3Array()
@@ -214,7 +214,7 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 				continue
 		else:
 			var nb_air := nb == GlobalConfig.BLOCK_AIR or nb == -1
-			if not (nb_air or nb == GlobalConfig.BLOCK_WATER):
+			if not (nb_air or GlobalConfig.is_water(nb)):
 				continue
 
 		var rect := TextureManager.get_atlas_uv(id, face)
@@ -250,7 +250,7 @@ static func _store_pack(cache: Dictionary, world: WorldManager, chunk: SubChunk,
 	# 顶点包若不删除，会残留在网格里形成"幽灵面"——表现为相邻水块之间多出侧面。
 	var solid_packs: Dictionary = cache["packs"]
 	var water_packs: Dictionary = cache["wpacks"]
-	if id == GlobalConfig.BLOCK_WATER:
+	if GlobalConfig.is_water(id):
 		solid_packs.erase(idx)
 		if pack == null:
 			water_packs.erase(idx)
@@ -416,14 +416,14 @@ static func _column_shapes(body: StaticBody3D, chunk: SubChunk, lx: int, lz: int
 	var ly := 0
 	while ly < size:
 		var id: int = chunk.blocks[chunk.get_index(lx, ly, lz)]
-		if id == GlobalConfig.BLOCK_AIR or id == GlobalConfig.BLOCK_WATER:
+		if id == GlobalConfig.BLOCK_AIR or GlobalConfig.is_water(id):
 			ly += 1
 			continue
 		var run := 1
 		if merge_vertical_runs:
 			while ly + run < size:
 				var nid: int = chunk.blocks[chunk.get_index(lx, ly + run, lz)]
-				if nid == GlobalConfig.BLOCK_AIR or nid == GlobalConfig.BLOCK_WATER:
+				if nid == GlobalConfig.BLOCK_AIR or GlobalConfig.is_water(nid):
 					break
 				run += 1
 		out.append(_add_box(body, lx, ly, lz, run))

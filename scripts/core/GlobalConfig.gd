@@ -26,7 +26,14 @@ const RENDER_DISTANCE := 3
 const BLOCK_AIR := 0
 const BLOCK_STONE := 1
 const BLOCK_GRASS := 2
-const BLOCK_WATER := 3
+const BLOCK_WATER := 3          # 水源（永久存在，水位 0）
+const BLOCK_FLOWING_WATER := 4  # 流动水（水位 1~7；具体水位存于 WaterSimulator）
+
+
+# 是否属于"水"这一类（水源或流动水）。渲染/物理/碰撞统一走这里，
+# 避免各处分别判断 BLOCK_WATER 而漏掉 BLOCK_FLOWING_WATER。
+static func is_water(id: int) -> bool:
+	return id == BLOCK_WATER or id == BLOCK_FLOWING_WATER
 
 # ===== 六个面索引（与法线方向对齐，0~5）=====
 # 世界方位约定：X 右为 +X（东）、左为 -X（西）；

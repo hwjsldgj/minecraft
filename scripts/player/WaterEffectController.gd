@@ -64,7 +64,7 @@ func _physics_process(_delta: float) -> void:
 		return
 	var eye := cam.global_position
 	var id := _world.get_block(int(floor(eye.x)), int(floor(eye.y)), int(floor(eye.z)))
-	var underwater := id == GlobalConfig.BLOCK_WATER
+	var underwater := GlobalConfig.is_water(id)
 	if underwater:
 		_env.fog_enabled = true
 		_env.fog_light_color = fog_color
