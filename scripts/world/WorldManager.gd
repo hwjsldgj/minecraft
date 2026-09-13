@@ -14,6 +14,11 @@ var world_data: Dictionary = {}
 # 网格是 WorldManager 的子节点；此缓存用于重建前释放与遍历。SubChunk 不感知渲染。
 var render_cache: Dictionary = {}
 
+# 顶点包缓存：键 = Vector3i（区块网格索引），值 = MeshBuilder.new_cache() 结构。
+# 保存每个方块分片的顶点包与每列的碰撞形状，供 set_block 走【局部面重建】。
+# 完整构建（build_chunk）时全量建立，之后由 patch_block 局部刷新。
+var mesh_cache: Dictionary = {}
+
 # ===== 分帧构建调度（避免跨区块瞬间卡帧）=====
 # 待构建区块队列（存区块索引 Vector3i）
 var build_queue: Array = []
@@ -54,15 +59,31 @@ func set_block(gx: int, gy: int, gz: int, id: int) -> void:
 	var lz := _local_coord(gz)
 	chunk.blocks[chunk.get_index(lx, ly, lz)] = id
 	chunk.dirty = true
-	# 数据层职责：写入后立即让所属区块（及受影响的相邻区块）重建网格。
+	# 数据层职责：写入后立即让受影响的网格刷新。
 	# 调用方只管写数据，不必自己算区块索引——曾因调用方误把"方块坐标"
 	# 当作"区块索引"传入重建接口，导致数据已变而画面不变。
-	_enqueue_rebuild(chunk.position)
-	# 跨区块边界：相邻区块网格中朝向本方块的面也需重新剔除。
+	# 已构建过的区块走【局部面重建】（只重算改动点周围 3×3×3）；
+	# 尚未构建的区块仍入队等整块构建。
+	if mesh_cache.has(chunk.position) and render_cache.has(chunk.position):
+		_patch_around(gx, gy, gz)
+	else:
+		_enqueue_rebuild(chunk.position)
+
+
+# 局部重建受改动影响的面：本区块以被改方块为中心重算，边界处再补相邻区块。
+func _patch_around(gx: int, gy: int, gz: int) -> void:
+	var chunk := _chunk_at(gx, gy, gz)
+	if chunk == null:
+		return
+	MeshBuilder.patch_block(self, chunk, _local_coord(gx), _local_coord(gy), _local_coord(gz))
 	for d in NEIGHBOR_OFFSETS:
-		var nb := _chunk_at(gx + d.x, gy + d.y, gz + d.z)
+		var dv: Vector3i = d
+		var nx: int = gx + dv.x
+		var ny: int = gy + dv.y
+		var nz: int = gz + dv.z
+		var nb := _chunk_at(nx, ny, nz)
 		if nb != null and nb.position != chunk.position:
-			_enqueue_rebuild(nb.position)
+			MeshBuilder.patch_block(self, nb, _local_coord(nx), _local_coord(ny), _local_coord(nz))
 
 
 # 将区块加入重建队列（去重；仅在区块已加载时）。
@@ -149,8 +170,10 @@ func update_chunk_loading(player_pos: Vector3) -> void:
 			unload_chunk(v3)
 
 
-# 释放某区块在 render_cache 中的旧网格实例（存在则 queue_free 并移除缓存键）。
+# 释放某区块在 render_cache 中的旧网格实例（存在则 queue_free 并移除缓存键），
+# 同时丢弃其顶点包/碰撞列缓存。
 func clear_render(v3: Vector3i) -> void:
+	mesh_cache.erase(v3)
 	if not render_cache.has(v3):
 		return
 	var entry: Dictionary = render_cache[v3]
