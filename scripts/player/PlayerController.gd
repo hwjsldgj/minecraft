@@ -65,12 +65,33 @@ func _ready() -> void:
 	collision_mask = 1
 	if DisplayServer.get_name() != "headless":
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	# 碰撞体尺寸以 @export 为【唯一数据源】：_ready 时用参数覆写场景里
+	# CollisionShape3D / CapsuleShape3D 的旧值，避免 main.tscn 与脚本各存一份、
+	# 改一处不同步（改 @export 后无需再手工改场景）。
+	_sync_collision_shape()
 	# 世界渲染（网格+碰撞体）就绪前冻结物理：否则出生于空中时会先下坠，
 	# 而出生点所在区块的碰撞体尚未生成 → 穿过地面卡在方块内部。
 	if _world != null and not _world.is_physics_ready():
 		velocity = Vector3.ZERO
 		set_physics_process(false)
 		_world.world_ready.connect(_on_world_ready)
+
+
+# 用 @export 的 body_radius / body_height / body_center_offset 覆写胶囊碰撞体。
+# 胶囊 shape 先 duplicate() 再改，避免改动场景内共享的子资源。
+func _sync_collision_shape() -> void:
+	var cs := get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if cs == null:
+		return
+	var cap := cs.shape as CapsuleShape3D
+	if cap != null:
+		cap = cap.duplicate() as CapsuleShape3D
+	else:
+		cap = CapsuleShape3D.new()
+	cs.shape = cap
+	cap.radius = body_radius
+	cap.height = body_height      # Godot 4：CapsuleShape3D.height 为含两端半球的总高
+	cs.position = Vector3(0.0, body_center_offset, 0.0)
 
 
 # 世界就绪回调：恢复物理模拟

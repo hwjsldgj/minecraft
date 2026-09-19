@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://tests/collision_shape_probe.gd" id="1_cshape"]
+
+[node name="CollisionShapeProbe" type="Node"]
+script = ExtResource("1_cshape")
