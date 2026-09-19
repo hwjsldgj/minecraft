@@ -92,6 +92,22 @@ const FACE_BRIGHTNESS := {
 
 static var _face_checked := false
 
+# 是否把【永久虚空】(世界 ±32 之外 / y<0 之下) 当作空气来渲染水面。
+# 这些位置的 -1 永远不会被流式加载，若与"未加载"一起剔除，玩家在水沟里
+# 低头/侧看就会透过水看到虚空。世界范围内的未加载区块仍照旧剔除以省面。
+static var render_void_faces := true
+
+
+# 该世界坐标是否位于【永久虚空】：世界边界之外，或世界底面之下。
+static func _is_permanent_void(gx: int, gy: int, gz: int) -> bool:
+	if gy < GlobalConfig.WORLD_MIN_Y or gy > GlobalConfig.WORLD_MAX_Y:
+		return true
+	if gx < GlobalConfig.WORLD_MIN_X or gx > GlobalConfig.WORLD_MAX_X:
+		return true
+	if gz < GlobalConfig.WORLD_MIN_Z or gz > GlobalConfig.WORLD_MAX_Z:
+		return true
+	return false
+
 # ===== 局部修复统计（供测试断言"只重算了很小一部分"）=====
 # 上一次 patch_block 重算的方块数与其中生成的顶点数
 static var last_patch_cells := 0
@@ -211,14 +227,24 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 		#     或外壳的侧面（相邻水块之间的内侧面本应被剔除）。
 		#   - 固体：水【不遮挡】，凡邻居为空气/未加载/水 都生成该面。
 		#     否则朝向水的固体面会被剔除 → 浸入水中会看穿固体、只见内壁。
-		var nb: int = world.get_block(gx + int(n.x), gy + int(n.y), gz + int(n.z))
+		var nx := gx + int(n.x)
+		var ny := gy + int(n.y)
+		var nz := gz + int(n.z)
+		var nb: int = world.get_block(nx, ny, nz)
 		var clip_lo := 0.0
 		if is_water_block:
-			# 水：邻居为空气 → 正常出侧面/顶面（按水位裁剪）；
+			# 两种 -1 要区别对待（见 _is_permanent_void）：
+			#   永久虚空（世界 ±32 之外 / y<0 之下）→ 永远不会被加载，按空气处理，渲染水面；
+			#   世界范围内未加载 → 属于流式加载待补区，维持剔除以省面。
+			var nb_air_like := nb == GlobalConfig.BLOCK_AIR \
+				or (nb == -1 and render_void_faces and _is_permanent_void(nx, ny, nz))
+			if nb_air_like:
+				pass
+			# 水：邻居为空气（含永久虚空）→ 正常出侧面/顶面（按水位裁剪）；
 			#     邻居为水且水位更低、且这是【侧面】→ 补一块竖直连接面（从邻居水位到本格水位），
 			#     否则不同水位之间会出现断崖/缝隙（能透过空洞看到背后）；
-			#     邻居为水且不更低 / 邻居为固体 / 未加载 → 不渲染。
-			if nb == GlobalConfig.BLOCK_AIR:
+			#     邻居为水且不更低 / 邻居为固体 / 流式未加载 → 不渲染。
+			if nb_air_like:
 				pass
 			elif GlobalConfig.is_water(nb) and face != GlobalConfig.FACE_BOTTOM and face != GlobalConfig.FACE_TOP:
 				var nb_h := _water_height(world, Vector3i(gx + int(n.x), gy + int(n.y), gz + int(n.z)))
