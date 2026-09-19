@@ -338,23 +338,10 @@ func get_shared_material() -> StandardMaterial3D:
 # 液体材质参数（集中配置，便于未来扩展其它液体：岩浆/蜂蜜等）
 const LIQUID_RENDER_PRIORITY := 1
 
-# 液体贴图【叠加色】表：源贴图多为灰度图（water_still 实测 64/64 像素三通道相等），
-# 必须靠 albedo_color 叠加液体本色才能呈现正确颜色，否则水面是灰色。
-# 未来新增液体（岩浆等）只需在此登记一行，或直接设置对应的 @export 参数。
-const LIQUID_TINTS := {
-	"water_still": Color(0.247, 0.463, 0.894),   # MC 水色 #3F76E4
-	"lava_still": Color(1.00, 0.62, 0.18),       # 预留：岩浆
-}
-
 # 水面参数（可 @export 调整；不改变透明模式与深度策略）
 @export var water_texture_key := "water_still"          # 水面 albedo 所用贴图键
 @export var water_alpha := 0.55                         # 水面不透明度（沿用原值）
 @export var water_tint := Color(0.247, 0.463, 0.894)    # 叠加色：默认 MC 水色
-
-
-# 查询某液体贴图的默认叠加色（未登记则返回白色=不染色）
-func get_liquid_tint(key: String) -> Color:
-	return LIQUID_TINTS.get(key, Color(1, 1, 1))
 
 
 # 返回共享的水材质：water_still 贴图 + MC 水色叠加 + 半透明（水下另有雾效补强）。
@@ -365,7 +352,7 @@ func get_liquid_tint(key: String) -> Color:
 # 16×16 的 water_still 会让归一化 UV 采到错误位置。图集里该单元就是 water_still.png 的
 # 逐像素拷贝，所以水面显示的就是 water_still 贴图本身。
 #
-# 关于 albedo_color：water_still 是灰度贴图，颜色靠叠加色给出（见 LIQUID_TINTS）。
+# 关于 albedo_color：water_still 是灰度贴图，颜色靠叠加色给出（见 water_tint）。
 #
 # 关于 cull_mode：水面必须【双面可见】。水面顶部是最常见的观察面：
 #   - 从水上（外侧）看到的是它的正面；

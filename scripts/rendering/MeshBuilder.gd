@@ -238,8 +238,6 @@ static func _make_pack(world: WorldManager, chunk: SubChunk, lx: int, ly: int, l
 			#   世界范围内未加载 → 属于流式加载待补区，维持剔除以省面。
 			var nb_air_like := nb == GlobalConfig.BLOCK_AIR \
 				or (nb == -1 and render_void_faces and _is_permanent_void(nx, ny, nz))
-			if nb_air_like:
-				pass
 			# 水：邻居为空气（含永久虚空）→ 正常出侧面/顶面（按水位裁剪）；
 			#     邻居为水且水位更低、且这是【侧面】→ 补一块竖直连接面（从邻居水位到本格水位），
 			#     否则不同水位之间会出现断崖/缝隙（能透过空洞看到背后）；

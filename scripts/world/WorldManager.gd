@@ -134,7 +134,7 @@ func generate_chunk_data(v3: Vector3i) -> SubChunk:
 		return world_data[v3]
 	var chunk := SubChunk.new()
 	chunk.position = v3
-	ChunkGenerator.generate(self, chunk)
+	ChunkGenerator.generate(chunk)
 	world_data[v3] = chunk
 	return chunk
 

@@ -20,7 +20,7 @@ const PIT_FLOOR := 2
 # 布局：内部(非坑)= 0~4 石头 + 5 草（平原草顶）；
 #       中央坑 |x|,|z|<=PIT_MAX = 0~2 石头（坑底），使四周露 3 格石头侧壁；
 #       最外一圈(世界边界) = 0~5 水（1 宽水沟）。
-static func generate(_world: WorldManager, chunk: SubChunk) -> void:
+static func generate(chunk: SubChunk) -> void:
 	var size := GlobalConfig.CHUNK_SIZE
 	var cx := chunk.position.x
 	var cz := chunk.position.z

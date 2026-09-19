@@ -68,10 +68,6 @@ func get_level(pos: Vector3i) -> int:
 	return -1
 
 
-func is_source(pos: Vector3i) -> bool:
-	return _world != null and _world.get_block(pos.x, pos.y, pos.z) == SOURCE
-
-
 # 某水方块的表面高度（0~1，相对方块底面）——水位分级渲染的唯一数据来源：
 #   - 水源：上方也是水 → height_full(1.0)；露天的孤立水面 → height_source(0.875)
 #   - 流动水：按水位从 height_source 线性递减到 height_min（水位 7 = 0.125）
